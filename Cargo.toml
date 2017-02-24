@@ -1,0 +1,21 @@
+[package]
+name = "mio-aio"
+version = "0.1.0"
+authors = ["Alan Somers <asomers@gmail.com>"]
+readme = "README.md"
+respository = "https://github.com/asomers/mio-aio"
+homepage = "https://github.com/asomers/mio-aio"
+description = """
+POSIX AIO bindings for mio
+"""
+categories = ["asynchronous", "filesystems"]
+
+[dependencies]
+libc = "0.2"
+mio = { path = "/home/somers/src/rust/mio" }
+nix = { path = "/home/somers/src/rust/nix" }
+
+[dev-dependencies]
+tempfile = "2"
+log = "0.3.1"
+env_logger = { version = "0.3.0", default-features = false }
