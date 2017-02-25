@@ -49,6 +49,11 @@ impl<'a> AioCb<'a> {
         self.inner.borrow_mut().aio_return()
     }
 
+    /// Wrapper for nix::sys::aio::AioCb::read
+    pub fn read(&mut self) -> nix::Result<()> {
+        self.inner.borrow_mut().read()
+    }
+
     /// Wrapper for nix::sys::aio::AioCb::write
     pub fn write(&mut self) -> nix::Result<()> {
         self.inner.borrow_mut().write()

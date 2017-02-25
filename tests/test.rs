@@ -12,6 +12,8 @@ use mio::{PollOpt, Ready, Token};
 use tempfile::tempfile;
 use nix::sys::aio;
 use std::os::unix::io::AsRawFd;
+use std::io::{Read, Seek, SeekFrom, Write};
+
 
 const UDATA: Token = Token(0xdeadbeef);
 
@@ -46,20 +48,48 @@ impl Handler for TestHandler {
 
 
 #[test]
-pub fn test_aio() {
-    ::env_logger::init().ok().expect("Couldn't initialize logger");
-
+pub fn test_read() {
     debug!("Starting TEST_AIO");
-    const WBUF: &'static [u8] = b"abcdef";
+    const INITIAL: &'static [u8] = b"abcdef123456";
+    let mut rbuf = vec![0; 4];
+    const EXPECT: &'static [u8] = b"cdef";
+    let mut f = tempfile().unwrap();
+    f.write(INITIAL).unwrap();
+
     let mut event_loop = EventLoop::<TestHandler>::new().unwrap();
     let mut handler = TestHandler::new();
-    let f = tempfile().unwrap();
+    {
+        let mut aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
+            2,   //offset
+            &mut rbuf,
+            0,   //priority
+            aio::LioOpcode::LIO_NOP);
+        event_loop.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+            .ok().expect("registration failed");
+
+        aiocb.read().unwrap();
+        event_loop.run_once(&mut handler, None).unwrap();
+        assert_eq!(handler.count, 1);
+        assert_eq!(handler.last_token, UDATA);
+
+        assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+    }
+    assert!(rbuf == EXPECT);
+}
+
+#[test]
+pub fn test_write() {
+    debug!("Starting TEST_AIO");
+    const WBUF: &'static [u8] = b"abcdef";
+    let mut rbuf = Vec::new();
+    let mut event_loop = EventLoop::<TestHandler>::new().unwrap();
+    let mut handler = TestHandler::new();
+    let mut f = tempfile().unwrap();
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         &WBUF,
         0,   //priority
         aio::LioOpcode::LIO_NOP);
-    debug!("About to register");
     event_loop.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
         .ok().expect("registration failed");
 
@@ -69,4 +99,8 @@ pub fn test_aio() {
     assert_eq!(handler.last_token, UDATA);
 
     assert_eq!(aiocb.aio_return().unwrap(), WBUF.len() as isize);
+    f.seek(SeekFrom::Start(0)).unwrap();
+    let len = f.read_to_end(&mut rbuf).unwrap();
+    assert!(len == WBUF.len());
+    assert!(rbuf == WBUF);
 }
