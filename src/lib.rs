@@ -7,10 +7,3 @@ extern crate nix;
 mod aio;
 
 pub use aio::AioCb;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-    }
-}
