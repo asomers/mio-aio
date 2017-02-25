@@ -47,6 +47,31 @@ impl Handler for TestHandler {
 }
 
 #[test]
+pub fn test_cancel() {
+    const WBUF: &'static [u8] = b"abcdef";
+    let mut event_loop = EventLoop::<TestHandler>::new().unwrap();
+    let mut handler = TestHandler::new();
+    let f = tempfile().unwrap();
+    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+        0,   //offset
+        &WBUF,
+        0,   //priority
+        aio::LioOpcode::LIO_NOP);
+    event_loop.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+        .ok().expect("registration failed");
+
+    aiocb.write().unwrap();
+    aiocb.cancel().ok().expect("aio_cancel failed");
+    event_loop.run_once(&mut handler, None).unwrap();
+    assert_eq!(handler.count, 1);
+    assert_eq!(handler.last_token, UDATA);
+
+    // Since we cancelled the I/O, we musn't care whether it succeeded.
+    let _ = aiocb.aio_return();
+}
+
+
+#[test]
 pub fn test_fsync() {
     const INITIAL: &'static [u8] = b"abcdef123456";
     let mut f = tempfile().unwrap();

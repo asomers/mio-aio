@@ -49,6 +49,11 @@ impl<'a> AioCb<'a> {
         self.inner.borrow_mut().aio_return()
     }
 
+    /// Wrapper for nix::sys::aio::AioCb::cancel
+    pub fn cancel(&mut self) -> nix::Result<aio::AioCancelStat> {
+        self.inner.borrow_mut().cancel()
+    }
+
     /// Wrapper for nix::sys::aio::AioCb::fsync
     pub fn fsync(&mut self, mode: aio::AioFsyncMode) -> nix::Result<()> {
         self.inner.borrow_mut().fsync(mode)
