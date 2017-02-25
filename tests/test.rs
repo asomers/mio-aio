@@ -46,6 +46,25 @@ impl Handler for TestHandler {
     }
 }
 
+#[test]
+pub fn test_fsync() {
+    const INITIAL: &'static [u8] = b"abcdef123456";
+    let mut f = tempfile().unwrap();
+    f.write(INITIAL).unwrap();
+    let mut event_loop = EventLoop::<TestHandler>::new().unwrap();
+
+    let mut handler = TestHandler::new();
+    let mut aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
+    event_loop.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+        .ok().expect("registration failed");
+
+    aiocb.fsync(aio::AioFsyncMode::O_SYNC).unwrap();
+    event_loop.run_once(&mut handler, None).unwrap();
+    assert_eq!(handler.count, 1);
+    assert_eq!(handler.last_token, UDATA);
+
+    aiocb.aio_return().unwrap();
+}
 
 #[test]
 pub fn test_read() {
