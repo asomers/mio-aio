@@ -1,6 +1,8 @@
 # mio-aio
 
-A library for integration file I/O with [mio], using POSIX AIO and kqueue.  File I/O can be seamlessly mixed with network I/O and timers in the same event loop.
+A library for integrating file I/O with [mio], using POSIX AIO and kqueue.
+File I/O can be seamlessly mixed with network I/O and timers in the same event
+loop.
 
 [mio]: https://github.com/carllerche/mio
 
