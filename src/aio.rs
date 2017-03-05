@@ -45,27 +45,27 @@ impl<'a> AioCb<'a> {
     }
 
     /// Wrapper for nix::sys::aio::aio_return
-    pub fn aio_return(&mut self) -> nix::Result<isize> {
+    pub fn aio_return(&self) -> nix::Result<isize> {
         self.inner.borrow_mut().aio_return()
     }
 
     /// Wrapper for nix::sys::aio::AioCb::cancel
-    pub fn cancel(&mut self) -> nix::Result<aio::AioCancelStat> {
+    pub fn cancel(&self) -> nix::Result<aio::AioCancelStat> {
         self.inner.borrow_mut().cancel()
     }
 
     /// Wrapper for nix::sys::aio::AioCb::fsync
-    pub fn fsync(&mut self, mode: aio::AioFsyncMode) -> nix::Result<()> {
+    pub fn fsync(&self, mode: aio::AioFsyncMode) -> nix::Result<()> {
         self.inner.borrow_mut().fsync(mode)
     }
 
     /// Wrapper for nix::sys::aio::AioCb::read
-    pub fn read(&mut self) -> nix::Result<()> {
+    pub fn read(&self) -> nix::Result<()> {
         self.inner.borrow_mut().read()
     }
 
     /// Wrapper for nix::sys::aio::AioCb::write
-    pub fn write(&mut self) -> nix::Result<()> {
+    pub fn write(&self) -> nix::Result<()> {
         self.inner.borrow_mut().write()
     }
 }
@@ -76,7 +76,7 @@ impl<'a> Evented for AioCb<'a> {
                 token: Token,
                 events: Ready,
                 _: PollOpt) -> io::Result<()> {
-        assert_eq!(events, Ready::aio());
+        assert!(events.is_aio());
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq: kq, udata: udata as isize};
