@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::io;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
+use std::rc::Rc;
 
 
 #[derive(Debug)]
@@ -29,9 +30,9 @@ impl<'a> AioCb<'a> {
     }
 
     /// Wraps nix::sys::aio::AioCb::from_mut_slice.
-    pub fn from_mut_slice(fd: RawFd, offs: off_t, buf: &'a mut [u8],
+    pub fn from_boxed_slice(fd: RawFd, offs: off_t, buf: Rc<Box<[u8]>>,
                           prio: c_int, opcode: aio::LioOpcode) -> AioCb<'a>{
-        let aiocb = aio::AioCb::from_mut_slice(fd, offs, buf, prio,
+        let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
                                                SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(aiocb) }
     }

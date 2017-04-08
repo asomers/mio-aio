@@ -12,6 +12,8 @@ use tempfile::tempfile;
 use nix::sys::aio;
 use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::ops::Deref;
+use std::rc::Rc;
 
 
 const UDATA: Token = Token(0xdeadbeef);
@@ -72,7 +74,7 @@ pub fn test_fsync() {
 pub fn test_read() {
     debug!("Starting TEST_AIO");
     const INITIAL: &'static [u8] = b"abcdef123456";
-    let mut rbuf = vec![0; 4];
+    let rbuf = Rc::new(vec![0; 4].into_boxed_slice());
     const EXPECT: &'static [u8] = b"cdef";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
@@ -80,9 +82,9 @@ pub fn test_read() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     {
-        let aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
+        let aiocb = mio_aio::AioCb::from_boxed_slice(f.as_raw_fd(),
             2,   //offset
-            &mut rbuf,
+            rbuf.clone(),
             0,   //priority
             aio::LioOpcode::LIO_NOP);
         poll.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
@@ -98,7 +100,7 @@ pub fn test_read() {
 
         assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     }
-    assert!(rbuf == EXPECT);
+    assert!(rbuf.deref().deref() == EXPECT);
 }
 
 #[test]
