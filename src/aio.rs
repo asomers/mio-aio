@@ -15,7 +15,9 @@ pub struct AioCb<'a> {
     // Must use a RefCell because mio::Evented's methods only take immutable
     // references we must use a RefCell here.  Unlike sockets, registering
     // aiocb's requires modifying the aiocb.
-    inner: RefCell<aio::AioCb<'a>>
+    // Must use Box for the AioCb so its location in memory will be constant.
+    // It is an error to move a libc::aiocb after passing it to the kernel.
+    inner: RefCell<Box<aio::AioCb<'a>>>
 }
 
 /// Wrapper around nix::sys::aio::AioCb.
@@ -26,7 +28,7 @@ impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::AioCb::from_fd.
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Wraps nix::sys::aio::AioCb::from_mut_slice.
@@ -34,7 +36,7 @@ impl<'a> AioCb<'a> {
                           prio: c_int, opcode: aio::LioOpcode) -> AioCb<'a>{
         let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
                                                SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Wraps nix::sys::aio::from_slice
@@ -42,7 +44,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: aio::LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Wrapper for nix::sys::aio::aio_return
