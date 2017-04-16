@@ -1,5 +1,6 @@
 use libc::{c_int, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
+use mio::unix::UnixReady;
 use nix;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
@@ -79,7 +80,7 @@ impl<'a> Evented for AioCb<'a> {
                 token: Token,
                 events: Ready,
                 _: PollOpt) -> io::Result<()> {
-        assert!(events.is_aio());
+        assert!(UnixReady::from(events).is_aio());
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq: kq, udata: udata as isize};

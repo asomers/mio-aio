@@ -8,6 +8,7 @@ extern crate nix;
 extern crate tempfile;
 
 use mio::{Events, Poll, PollOpt, Ready, Token};
+use mio::unix::UnixReady;
 use tempfile::tempfile;
 use nix::sys::aio;
 use std::os::unix::io::AsRawFd;
@@ -30,7 +31,7 @@ pub fn test_cancel() {
         &WBUF,
         0,   //priority
         aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -40,7 +41,7 @@ pub fn test_cancel() {
     assert_eq!(events.len(), 1);
     let ev = events.get(0).unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(ev.readiness().is_aio());
+    assert!(UnixReady::from(ev.readiness()).is_aio());
 
     // Since we cancelled the I/O, we musn't care whether it succeeded.
     let _ = aiocb.aio_return();
@@ -57,7 +58,7 @@ pub fn test_fsync() {
 
     //let mut handler = TestHandler::new();
     let aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
-    poll.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.fsync(aio::AioFsyncMode::O_SYNC).unwrap();
@@ -65,7 +66,7 @@ pub fn test_fsync() {
     assert_eq!(events.len(), 1);
     let ev = events.get(0).unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(ev.readiness().is_aio());
+    assert!(UnixReady::from(ev.readiness()).is_aio());
 
     aiocb.aio_return().unwrap();
 }
@@ -87,7 +88,7 @@ pub fn test_read() {
             rbuf.clone(),
             0,   //priority
             aio::LioOpcode::LIO_NOP);
-        poll.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+        poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
             .ok().expect("registration failed");
 
         aiocb.read().unwrap();
@@ -96,7 +97,7 @@ pub fn test_read() {
         assert_eq!(events.len(), 1);
         let ev = events.get(0).unwrap();
         assert_eq!(ev.token(), UDATA);
-        assert!(ev.readiness().is_aio());
+        assert!(UnixReady::from(ev.readiness()).is_aio());
 
         assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     }
@@ -117,7 +118,7 @@ pub fn test_write() {
         &WBUF,
         0,   //priority
         aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, Ready::aio(), PollOpt::empty())
+    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -126,7 +127,7 @@ pub fn test_write() {
     assert_eq!(events.len(), 1);
     let ev = events.get(0).unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(ev.readiness().is_aio());
+    assert!(UnixReady::from(ev.readiness()).is_aio());
 
     assert_eq!(aiocb.aio_return().unwrap(), WBUF.len() as isize);
     f.seek(SeekFrom::Start(0)).unwrap();
