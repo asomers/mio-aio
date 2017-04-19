@@ -13,8 +13,8 @@ categories = ["asynchronous", "filesystems"]
 
 [dependencies]
 libc = "0.2"
-mio = { path = "/home/somers/src/rust/mio" }
-nix = { path = "/home/somers/src/rust/nix" }
+mio = { git = "https://github.com/asomers/mio", branch = "aio6" }
+nix = { git = "https://github.com/nix-rust/nix", rev = "2f780ef" }
 
 [dev-dependencies]
 tempfile = "2"
