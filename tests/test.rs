@@ -7,7 +7,7 @@ extern crate mio_aio;
 extern crate nix;
 extern crate tempfile;
 
-use mio::{Events, Poll, PollOpt, Ready, Token};
+use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
 use nix::sys::aio;
@@ -31,7 +31,7 @@ pub fn test_cancel() {
         &WBUF,
         0,   //priority
         aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -56,9 +56,8 @@ pub fn test_fsync() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    //let mut handler = TestHandler::new();
     let aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
-    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.fsync(aio::AioFsyncMode::O_SYNC).unwrap();
@@ -88,7 +87,7 @@ pub fn test_read() {
             rbuf.clone(),
             0,   //priority
             aio::LioOpcode::LIO_NOP);
-        poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
+        poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
             .ok().expect("registration failed");
 
         aiocb.read().unwrap();
@@ -118,7 +117,7 @@ pub fn test_write() {
         &WBUF,
         0,   //priority
         aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, Ready::from(UnixReady::aio()), PollOpt::empty())
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
         .expect("registration failed");
 
     aiocb.write().unwrap();
