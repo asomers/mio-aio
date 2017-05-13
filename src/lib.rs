@@ -6,4 +6,4 @@ extern crate nix;
 
 mod aio;
 
-pub use aio::AioCb;
+pub use aio::{AioCb, LioCb};

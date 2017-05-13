@@ -4,8 +4,9 @@ use mio::unix::UnixReady;
 use nix;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::io;
+use std::iter::FromIterator;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
@@ -14,10 +15,10 @@ use std::rc::Rc;
 #[derive(Debug)]
 pub struct AioCb<'a> {
     // Must use a RefCell because mio::Evented's methods only take immutable
-    // references we must use a RefCell here.  Unlike sockets, registering
-    // aiocb's requires modifying the aiocb.
-    // Must use Box for the AioCb so its location in memory will be constant.
-    // It is an error to move a libc::aiocb after passing it to the kernel.
+    // references, and unlike sockets, registering aiocb's requires modifying
+    // the aiocb.  Must use Box for the AioCb so its location in memory will be
+    // constant.  It is an error to move a libc::aiocb after passing it to the
+    // kernel.
     inner: RefCell<Box<aio::AioCb<'a>>>
 }
 
@@ -99,6 +100,70 @@ impl<'a> Evented for AioCb<'a> {
     fn deregister(&self, _: &Poll) -> io::Result<()> {
         let sigev = SigevNotify::SigevNone;
         self.inner.borrow_mut().set_sigev_notify(sigev);
+        Ok(())
+    }
+}
+
+
+#[derive(Debug)]
+pub struct LioCb<'a> {
+    // Unlike AioCb, registering this structure does not modify the AioCb's
+    // themselves, so no RefCell is needed
+    inner: Box<[aio::AioCb<'a>]>,
+    // A plain Cell suffices, because we can Copy SigevNotify's.
+    sev: Cell<SigevNotify>
+}
+
+impl<'a> LioCb<'a> {
+    pub fn aiocb(&mut self, idx: usize) -> &mut aio::AioCb<'a> {
+        &mut self.inner[idx]
+    }
+
+    pub fn from_boxed_slices(fd: RawFd, offs: off_t, bufs: &[Rc<Box<[u8]>>],
+                          prio: c_int, opcode: aio::LioOpcode) -> LioCb<'a>{
+        let mut v = Vec::<aio::AioCb>::with_capacity(bufs.len());
+        let mut o = offs;
+        for x in bufs {
+            v.push(
+                aio::AioCb::from_boxed_slice(fd, o, x.clone(), prio,
+                SigevNotify::SigevNone, opcode));
+            o += x.len() as off_t;
+        }
+        let i = v.into_boxed_slice();
+        LioCb {inner:i, sev: Cell::new(SigevNotify::SigevNone)}
+    }
+
+    pub fn listio(&mut self) -> nix::Result<()> {
+        let aiolist: Vec<&mut nix::sys::aio::AioCb> = Vec::from_iter(self.inner.iter_mut());
+        aio::lio_listio(aio::LioMode::LIO_NOWAIT, &aiolist, self.sev.get())
+    }
+}
+
+impl<'a> Evented for LioCb<'a> {
+    fn register(&self,
+                poll: &Poll,
+                token: Token,
+                events: Ready,
+                _: PollOpt) -> io::Result<()> {
+        assert!(UnixReady::from(events).is_lio());
+        let udata = usize::from(token);
+        let kq = poll.as_raw_fd();
+        let sigev = SigevNotify::SigevKevent{kq: kq, udata: udata as isize};
+        self.sev.set(sigev);
+        Ok(())
+    }
+
+    fn reregister(&self,
+                  poll: &Poll,
+                  token: Token,
+                  events: Ready,
+                  opts: PollOpt) -> io::Result<()> {
+        self.register(poll, token, events, opts)
+    }
+
+    fn deregister(&self, _: &Poll) -> io::Result<()> {
+        let sigev = SigevNotify::SigevNone;
+        self.sev.set(sigev);
         Ok(())
     }
 }
