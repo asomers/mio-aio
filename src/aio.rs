@@ -7,6 +7,7 @@ use nix::sys::signal::SigevNotify;
 use std::cell::{Cell, RefCell};
 use std::io;
 use std::iter::FromIterator;
+use std::ops::{Index, IndexMut};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
@@ -109,33 +110,26 @@ impl<'a> Evented for AioCb<'a> {
 pub struct LioCb<'a> {
     // Unlike AioCb, registering this structure does not modify the AioCb's
     // themselves, so no RefCell is needed
-    inner: Box<[aio::AioCb<'a>]>,
+    inner: Vec<aio::AioCb<'a>>,
     // A plain Cell suffices, because we can Copy SigevNotify's.
     sev: Cell<SigevNotify>
 }
 
 impl<'a> LioCb<'a> {
-    pub fn aiocb(&mut self, idx: usize) -> &mut aio::AioCb<'a> {
-        &mut self.inner[idx]
-    }
-
-    pub fn from_boxed_slices(fd: RawFd, offs: off_t, bufs: &[Rc<Box<[u8]>>],
-                          prio: c_int, opcode: aio::LioOpcode) -> LioCb<'a>{
-        let mut v = Vec::<aio::AioCb>::with_capacity(bufs.len());
-        let mut o = offs;
-        for x in bufs {
-            v.push(
-                aio::AioCb::from_boxed_slice(fd, o, x.clone(), prio,
-                SigevNotify::SigevNone, opcode));
-            o += x.len() as off_t;
-        }
-        let i = v.into_boxed_slice();
-        LioCb {inner:i, sev: Cell::new(SigevNotify::SigevNone)}
-    }
-
     pub fn listio(&mut self) -> nix::Result<()> {
-        let aiolist: Vec<&mut nix::sys::aio::AioCb> = Vec::from_iter(self.inner.iter_mut());
+        let aiolist: Vec<&mut aio::AioCb> = Vec::from_iter(self.inner.iter_mut());
         aio::lio_listio(aio::LioMode::LIO_NOWAIT, &aiolist, self.sev.get())
+    }
+
+    pub fn push(&mut self, aiocb: aio::AioCb<'a>) {
+        self.inner.push(aiocb);
+    }
+
+    pub fn with_capacity(capacity: usize) -> LioCb<'a> {
+        LioCb {
+            inner: Vec::<aio::AioCb<'a>>::with_capacity(capacity),
+            sev: Cell::new(SigevNotify::SigevNone)
+        }
     }
 }
 
@@ -165,5 +159,19 @@ impl<'a> Evented for LioCb<'a> {
         let sigev = SigevNotify::SigevNone;
         self.sev.set(sigev);
         Ok(())
+    }
+}
+
+impl<'a> Index<usize> for LioCb<'a> {
+    type Output = aio::AioCb<'a>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[index]
+    }
+}
+
+impl<'a> IndexMut<usize> for LioCb<'a> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.inner[index]
     }
 }
