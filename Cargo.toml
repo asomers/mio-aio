@@ -13,7 +13,7 @@ categories = ["asynchronous", "filesystems"]
 
 [dependencies]
 libc = "0.2"
-mio = "0.6.8"
+mio = "0.6.9"
 nix = { git = "https://github.com/nix-rust/nix", rev = "2f780ef" }
 
 [dev-dependencies]

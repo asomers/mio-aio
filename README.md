@@ -10,12 +10,20 @@ loop.
 # Cargo.toml
 [dependencies]
 mio-aio = "0.1"
-mio = "0.6"
+mio = "0.6.9"
 ```
 
 ## Usage
 
-TODO
+Usage of this crate is based on the `mio_aio::AioCb` type, which is a wrapper
+around `nix::AioCb`.  You can create one using constructors that are similar to
+what `nix` provides.  Registration is the same as any `mio` type, except that
+`AioCb` must be individually registered.  The underlying file does not get
+registered with `mio`.  Once registered, you can issue the `AioCb` using
+methods that wrap the `nix` type: `read`, `write`, etc.  After `mio`'s `poll`
+method returns the event, call `AioCb::aio_return` to get the final status.  At
+this point, the kernel has forgotten about the `AioCb`.  There is no need to
+deregister it (though deregistration does not hurt).
 
 
 # Platforms
@@ -30,11 +38,11 @@ supported by `mio-aio`.  But there's still hope for Linux users!  Linux has a
 non-standard asynchronous file I/O API called libaio.  Libaio has better
 performance than Linux's POSIX AIO.  It still can't deliver completion
 notification throuh epoll(2), however.  What it can do is deliver completion
-notification through a signal.  And using a signalfd(2), signal delivery
-notification can be delivered through epoll(2).  So a Linux programmer wishing
-to use `mio` with files could theoretically write a `mio-signalfd` crate and a
-`mio-libaio` crate.  Then he could implement a portability layer above `mio`,
-for example in `tokio`.
+notification through an eventfd(2).  And epoll can poll an eventfd.  So a Linux
+programmer wishing to use `mio` with files could theoretically write a
+`mio-libaio` crate that uses one eventfd per reactor to poll all libaio
+operations .  Then he could implement a portability layer above `mio`, for
+example in `tokio`.
 
 # License
 
