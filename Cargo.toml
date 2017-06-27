@@ -10,6 +10,7 @@ description = """
 POSIX AIO bindings for mio
 """
 categories = ["asynchronous", "filesystems"]
+keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
 libc = "0.2"
