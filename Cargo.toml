@@ -5,7 +5,6 @@ authors = ["Alan Somers <asomers@gmail.com>"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
 respository = "https://github.com/asomers/mio-aio"
-homepage = "https://github.com/asomers/mio-aio"
 description = """
 POSIX AIO bindings for mio
 """
