@@ -8,7 +8,7 @@ respository = "https://github.com/asomers/mio-aio"
 description = """
 POSIX AIO bindings for mio
 """
-categories = ["asynchronous", "filesystems"]
+categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
