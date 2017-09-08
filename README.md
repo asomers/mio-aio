@@ -28,8 +28,8 @@ deregister it (though deregistration does not hurt).
 
 # Platforms
 
-`mio-aio` works on FreeBSD.  It will probably also work on DragonflyBSD and
-OSX.  It does not work on Linux.
+`mio-aio` works on FreeBSD.  It will probably also work on DragonflyBSD.
+It does not work on Linux or MacOS.
 
 Unfortunately, Linux includes a poor implementation of POSIX AIO that emulates
 asynchronous I/O in glibc using userland threads.  Worse, epoll(2) can't
@@ -43,6 +43,11 @@ programmer wishing to use `mio` with files could theoretically write a
 `mio-libaio` crate that uses one eventfd per reactor to poll all libaio
 operations .  Then he could implement a portability layer above `mio`, for
 example in `tokio`.
+
+On MacOS AIO only supports notification using signals, not kqueue.  On MacOS
+`mio-aio` could theoretically run `aio-suspend` in a separate thread, which
+would send completion notification to the main thread's reactor.  Performance
+would suffer, however.
 
 # License
 
