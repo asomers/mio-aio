@@ -44,7 +44,10 @@ programmer wishing to use `mio` with files could theoretically write a
 operations .  Then he could implement a portability layer above `mio`, for
 example in `tokio`.
 
-On MacOS AIO only supports notification using signals, not kqueue.  On MacOS `mio-aio` could theoretically run `aio-suspend` in a separate thread, which would send completion notification to the main thread's reactor.  Performance would suffer, however.
+On MacOS AIO only supports notification using signals, not kqueue.  On MacOS
+`mio-aio` could theoretically run `aio-suspend` in a separate thread, which
+would send completion notification to the main thread's reactor.  Performance
+would suffer, however.
 
 # License
 
