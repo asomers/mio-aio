@@ -12,6 +12,7 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
 
+pub use nix::sys::aio::LioOpcode;
 
 #[derive(Debug)]
 pub struct AioCb<'a> {
@@ -36,7 +37,7 @@ impl<'a> AioCb<'a> {
 
     /// Wraps nix::sys::aio::AioCb::from_mut_slice.
     pub fn from_boxed_slice(fd: RawFd, offs: off_t, buf: Rc<Box<[u8]>>,
-                          prio: c_int, opcode: aio::LioOpcode) -> AioCb<'a>{
+                          prio: c_int, opcode: LioOpcode) -> AioCb<'a>{
         let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
                                                SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
@@ -44,7 +45,7 @@ impl<'a> AioCb<'a> {
 
     /// Wraps nix::sys::aio::from_slice
     pub fn from_slice(fd: RawFd, offs: off_t, buf: &'a [u8],
-                      prio: c_int, opcode: aio::LioOpcode) -> AioCb {
+                      prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs, buf, prio,
                                            SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
@@ -119,6 +120,22 @@ impl<'a> LioCb<'a> {
     pub fn listio(&mut self) -> nix::Result<()> {
         let aiolist: Vec<&mut aio::AioCb> = Vec::from_iter(self.inner.iter_mut());
         aio::lio_listio(aio::LioMode::LIO_NOWAIT, &aiolist, self.sev.get())
+    }
+
+    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: off_t,
+                               buf: Rc<Box<[u8]>>, prio: i32, opcode: LioOpcode){
+        let aiocb = aio::AioCb::from_boxed_slice(fd, offset, buf.clone(),
+                                                 prio as c_int,
+                                                 SigevNotify::SigevNone,
+                                                 opcode);
+        self.inner.push(aiocb);
+    }
+
+    pub fn emplace_slice(&mut self, fd: RawFd, offset: off_t,
+                         buf: &'a [u8], prio: i32, opcode: LioOpcode) {
+        let aiocb = aio::AioCb::from_slice(fd, offset, buf, prio as c_int,
+                                           SigevNotify::SigevNone, opcode);
+        self.inner.push(aiocb);
     }
 
     pub fn push(&mut self, aiocb: aio::AioCb<'a>) {
