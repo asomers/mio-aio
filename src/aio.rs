@@ -12,6 +12,7 @@ use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
 
+pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
 
 #[derive(Debug)]
@@ -62,7 +63,7 @@ impl<'a> AioCb<'a> {
     }
 
     /// Wrapper for nix::sys::aio::AioCb::fsync
-    pub fn fsync(&self, mode: aio::AioFsyncMode) -> nix::Result<()> {
+    pub fn fsync(&self, mode: AioFsyncMode) -> nix::Result<()> {
         self.inner.borrow_mut().fsync(mode)
     }
 

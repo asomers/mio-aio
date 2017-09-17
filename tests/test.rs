@@ -8,7 +8,6 @@ extern crate tempfile;
 use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
-use nix::sys::aio;
 use std::borrow::Borrow;
 use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -59,7 +58,7 @@ pub fn test_aio_fsync() {
     poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    aiocb.fsync(aio::AioFsyncMode::O_SYNC).unwrap();
+    aiocb.fsync(mio_aio::AioFsyncMode::O_SYNC).unwrap();
     poll.poll(&mut events, None).expect("poll failed");
     assert_eq!(events.len(), 1);
     let ev = events.get(0).unwrap();
