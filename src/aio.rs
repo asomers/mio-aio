@@ -139,10 +139,6 @@ impl<'a> LioCb<'a> {
         self.inner.push(aiocb);
     }
 
-    pub fn push(&mut self, aiocb: aio::AioCb<'a>) {
-        self.inner.push(aiocb);
-    }
-
     pub fn with_capacity(capacity: usize) -> LioCb<'a> {
         LioCb {
             inner: Vec::<aio::AioCb<'a>>::with_capacity(capacity),
