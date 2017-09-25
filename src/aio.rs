@@ -11,6 +11,7 @@ use std::ops::{Index, IndexMut};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::rc::Rc;
+use std::slice;
 
 pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
@@ -139,6 +140,16 @@ impl<'a> LioCb<'a> {
         self.inner.push(aiocb);
     }
 
+    /// Iterate over all `AioCb` contained within the `LioCb`
+    pub fn iter(&self) -> slice::Iter<aio::AioCb<'a>> {
+        self.inner.iter()
+    }
+
+    /// Mutably iterate over all `AioCb` contained within the `LioCb`
+    pub fn iter_mut(&mut self) -> slice::IterMut<aio::AioCb<'a>> {
+        self.inner.iter_mut()
+    }
+
     pub fn with_capacity(capacity: usize) -> LioCb<'a> {
         LioCb {
             inner: Vec::<aio::AioCb<'a>>::with_capacity(capacity),
@@ -173,6 +184,15 @@ impl<'a> Evented for LioCb<'a> {
         let sigev = SigevNotify::SigevNone;
         self.sev.set(sigev);
         Ok(())
+    }
+}
+
+impl<'a> IntoIterator for LioCb<'a> {
+    type Item = aio::AioCb<'a>;
+    type IntoIter = ::std::vec::IntoIter<aio::AioCb<'a>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
     }
 }
 

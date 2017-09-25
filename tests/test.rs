@@ -9,7 +9,7 @@ use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
 use std::borrow::Borrow;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{RawFd, AsRawFd};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -129,6 +129,52 @@ pub fn test_aio_write() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert!(len == WBUF.len());
     assert!(rbuf == WBUF);
+}
+
+#[test]
+pub fn test_lio_iter() {
+    let f : RawFd = 10042;
+    const WBUF: &'static [u8] = b"abcdef";
+
+    let mut liocb = mio_aio::LioCb::with_capacity(2);
+    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    let mut iter = liocb.iter();
+    let first = iter.next().unwrap();
+    assert_eq!(2, first.offset());
+    let second = iter.next().unwrap();
+    assert_eq!(7, second.offset());
+}
+
+// Only a few `AioCb` methods need a mutable reference.  `error` is one
+#[test]
+pub fn test_lio_iter_mut() {
+    let f : RawFd = 10042;
+    const WBUF: &'static [u8] = b"abcdef";
+
+    let mut liocb = mio_aio::LioCb::with_capacity(2);
+    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    let mut iter = liocb.iter_mut();
+    let first = iter.next().unwrap();
+    assert!(first.error().is_err());
+    let second = iter.next().unwrap();
+    assert!(second.error().is_err());
+}
+
+#[test]
+pub fn test_lio_into_iter() {
+    let f : RawFd = 10042;
+    const WBUF: &'static [u8] = b"abcdef";
+
+    let mut liocb = mio_aio::LioCb::with_capacity(2);
+    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
+    let mut iter = liocb.into_iter();
+    let first = iter.next().unwrap();
+    assert_eq!(2, first.offset());
+    let second = iter.next().unwrap();
+    assert_eq!(7, second.offset());
 }
 
 #[test]
