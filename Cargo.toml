@@ -12,9 +12,10 @@ categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
+bytes = "0.4.5"
 libc = "0.2"
-mio = "0.6.9"
-nix = "0.9.0"
+mio = { path = "/home/somers/src/rust/mio" }
+nix = { path = "/home/somers/src/rust/nix" }
 
 [dev-dependencies]
 tempfile = "2"

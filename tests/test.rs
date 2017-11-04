@@ -1,3 +1,4 @@
+extern crate bytes;
 extern crate libc;
 extern crate env_logger;
 extern crate mio;
@@ -5,11 +6,12 @@ extern crate mio_aio;
 extern crate nix;
 extern crate tempfile;
 
+use bytes::{Bytes, BytesMut};
 use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
 use std::borrow::Borrow;
-use std::os::unix::io::{RawFd, AsRawFd};
+use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -71,7 +73,7 @@ pub fn test_aio_fsync() {
 #[test]
 pub fn test_aio_read() {
     const INITIAL: &'static [u8] = b"abcdef123456";
-    let rbuf = Rc::new(vec![0; 4].into_boxed_slice());
+    let mut rbuf = vec![0; 4];
     const EXPECT: &'static [u8] = b"cdef";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
@@ -79,9 +81,9 @@ pub fn test_aio_read() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     {
-        let aiocb = mio_aio::AioCb::from_boxed_slice(f.as_raw_fd(),
+        let aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
             2,   //offset
-            rbuf.clone(),
+            &mut rbuf,
             0,   //priority
             mio_aio::LioOpcode::LIO_NOP);
         poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
@@ -101,7 +103,171 @@ pub fn test_aio_read() {
 }
 
 #[test]
-pub fn test_aio_write() {
+pub fn test_aio_read_bytes_small() {
+    const INITIAL: &'static [u8] = b"abcdef";
+    // rbuf needs to be no more than 32 bytes (64 on 32-bit systems) so
+    // BytesMut::clone is implemented by reference.
+    let rbuf = BytesMut::from(vec![0; 4]);
+    const EXPECT: &'static [u8] = b"cdef";
+    let mut f = tempfile().unwrap();
+    f.write(INITIAL).unwrap();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+    let aiocb = mio_aio::AioCb::from_bytes_mut(f.as_raw_fd(),
+        2,   //offset
+        rbuf,
+        0,   //priority
+        mio_aio::LioOpcode::LIO_NOP);
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        .ok().expect("registration failed");
+
+    aiocb.read().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_aio());
+
+    assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+    let buf_ref = aiocb.into_buf_ref();
+    assert!(buf_ref.bytes_mut().unwrap() == EXPECT);
+}
+
+#[test]
+pub fn test_aio_read_bytes_big() {
+    const INITIAL: &'static [u8] = b"abcdefgh12345678abcdefgh12345678abcdefgh12345678abcdefgh12345678abcdefgh12345678";
+    // rbuf needs to be larger than 32 bytes (64 on 32-bit systems) so
+    // BytesMut::clone is implemented by reference.
+    let rbuf = BytesMut::from(vec![0; 70]);
+    const EXPECT: &'static [u8] = b"cdefgh12345678abcdefgh12345678abcdefgh12345678abcdefgh12345678abcdefgh";
+    let mut f = tempfile().unwrap();
+    f.write(INITIAL).unwrap();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+    let aiocb = mio_aio::AioCb::from_bytes_mut(f.as_raw_fd(),
+        2,   //offset
+        rbuf,
+        0,   //priority
+        mio_aio::LioOpcode::LIO_NOP);
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        .ok().expect("registration failed");
+
+    aiocb.read().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_aio());
+
+    assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+    let buf_ref = aiocb.into_buf_ref();
+    assert!(buf_ref.bytes_mut().unwrap() == EXPECT);
+}
+
+#[test]
+#[allow(deprecated)]
+pub fn test_aio_write_boxed() {
+    let wbuf = Rc::new(String::from("abcdef").into_bytes().into_boxed_slice());
+    let mut f = tempfile().unwrap();
+    let mut rbuf = Vec::new();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+    let aiocb = mio_aio::AioCb::from_boxed_slice(f.as_raw_fd(),
+        0,   //offset
+        wbuf.clone(),
+        0,   //priority
+        mio_aio::LioOpcode::LIO_NOP);
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        .expect("registration failed");
+
+    aiocb.write().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_aio());
+
+    assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
+    f.seek(SeekFrom::Start(0)).unwrap();
+    let len = f.read_to_end(&mut rbuf).unwrap();
+    assert!(len == wbuf.len());
+    assert!(rbuf == wbuf.deref().deref());
+    let buf_ref = aiocb.into_buf_ref();
+    assert_eq!(buf_ref.boxed_slice().unwrap(), &wbuf);
+}
+
+#[test]
+pub fn test_aio_write_bytes() {
+    let wbuf = Bytes::from(&b"abcdef"[..]);
+    let mut f = tempfile().unwrap();
+    let mut rbuf = Vec::new();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+    let aiocb = mio_aio::AioCb::from_bytes(f.as_raw_fd(),
+        0,   //offset
+        wbuf.clone(),
+        0,   //priority
+        mio_aio::LioOpcode::LIO_NOP);
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        .expect("registration failed");
+
+    aiocb.write().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_aio());
+
+    assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
+    f.seek(SeekFrom::Start(0)).unwrap();
+    let len = f.read_to_end(&mut rbuf).unwrap();
+    assert!(len == wbuf.len());
+    assert!(rbuf == wbuf.deref().deref());
+    let buf_ref = aiocb.into_buf_ref();
+    assert_eq!(buf_ref.bytes().unwrap(), &wbuf.deref());
+}
+
+#[test]
+pub fn test_aio_write_slice() {
+    let wbuf = String::from("abcdef").into_bytes().into_boxed_slice();
+    let mut f = tempfile().unwrap();
+    let mut rbuf = Vec::new();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+    let aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+        0,   //offset
+        &wbuf,
+        0,   //priority
+        mio_aio::LioOpcode::LIO_NOP);
+    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        .expect("registration failed");
+
+    aiocb.write().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_aio());
+
+    assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
+    f.seek(SeekFrom::Start(0)).unwrap();
+    let len = f.read_to_end(&mut rbuf).unwrap();
+    assert!(len == wbuf.len());
+    assert!(rbuf == wbuf.deref().deref());
+}
+
+#[test]
+pub fn test_aio_write_static() {
     const WBUF: &'static [u8] = b"abcdef";
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
@@ -129,52 +295,6 @@ pub fn test_aio_write() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert!(len == WBUF.len());
     assert!(rbuf == WBUF);
-}
-
-#[test]
-pub fn test_lio_iter() {
-    let f : RawFd = 10042;
-    const WBUF: &'static [u8] = b"abcdef";
-
-    let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    let mut iter = liocb.iter();
-    let first = iter.next().unwrap();
-    assert_eq!(2, first.offset());
-    let second = iter.next().unwrap();
-    assert_eq!(7, second.offset());
-}
-
-// Only a few `AioCb` methods need a mutable reference.  `error` is one
-#[test]
-pub fn test_lio_iter_mut() {
-    let f : RawFd = 10042;
-    const WBUF: &'static [u8] = b"abcdef";
-
-    let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    let mut iter = liocb.iter_mut();
-    let first = iter.next().unwrap();
-    assert!(first.error().is_err());
-    let second = iter.next().unwrap();
-    assert!(second.error().is_err());
-}
-
-#[test]
-pub fn test_lio_into_iter() {
-    let f : RawFd = 10042;
-    const WBUF: &'static [u8] = b"abcdef";
-
-    let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_slice(f, 2, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_slice(f, 7, WBUF, 0, mio_aio::LioOpcode::LIO_WRITE);
-    let mut iter = liocb.into_iter();
-    let first = iter.next().unwrap();
-    assert_eq!(2, first.offset());
-    let second = iter.next().unwrap();
-    assert_eq!(7, second.offset());
 }
 
 #[test]
@@ -352,4 +472,73 @@ pub fn test_lio_read_and_write() {
     let len = f1.read_to_end(&mut rbuf1).unwrap();
     assert_eq!(len, WBUF1.len());
     assert_eq!(rbuf1, WBUF1);
+}
+
+// An lio operation that contains every variant of BufRef.  Tests retrieving the
+// BufRefs once the operation is complete.
+// Op 1: write from static slice
+// Op 2: write from bytes
+// Op 3: read into BytesMut
+#[test]
+pub fn test_lio_buf_ref() {
+    const INITIAL: &'static [u8] = b"abcdef123456";
+    const WBUF1: &'static [u8] = b"AB";
+    let mut rbuf1 = vec![0u8; 2];
+    let wbuf2 = Bytes::from(&b"CDEF"[..]);
+    let wbuf2clone = wbuf2.clone();
+    let mut rbuf2 = vec![0u8; 4];
+    let rbuf3 = BytesMut::from(vec![0; 6]);
+    const EXPECT3: &'static [u8] = b"123456";
+    let mut f = tempfile().unwrap();
+    f.write(INITIAL).unwrap();
+
+    let poll = Poll::new().unwrap();
+    let mut events = Events::with_capacity(1024);
+
+    let mut liocb = mio_aio::LioCb::with_capacity(3);
+    liocb.emplace_slice(f.as_raw_fd(), 0, WBUF1, 0,
+                        mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_bytes(f.as_raw_fd(), 2, wbuf2, 0,
+                              mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_bytes_mut(f.as_raw_fd(), 6, rbuf3, 0,
+                              mio_aio::LioOpcode::LIO_READ);
+    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+        .expect("registration failed");
+
+    liocb.listio().unwrap();
+
+    poll.poll(&mut events, None).expect("poll failed");
+    assert_eq!(events.len(), 1);
+
+    let ev = events.get(0).unwrap();
+    assert_eq!(ev.token(), UDATA);
+    assert!(UnixReady::from(ev.readiness()).is_lio());
+
+    let mut iter = liocb.into_iter();
+
+    let first = iter.next().unwrap();
+    first.error().unwrap();
+    assert_eq!(first.aio_return().unwrap(), WBUF1.len() as isize);
+    f.seek(SeekFrom::Start(0)).unwrap();
+    let len = f.read(&mut rbuf1).unwrap();
+    assert_eq!(len, WBUF1.len());
+    assert_eq!(rbuf1, WBUF1);
+    let buf_ref = first.into_buf_ref();
+    assert!(buf_ref.is_none());
+
+    let second = iter.next().unwrap();
+    second.error().unwrap();
+    assert_eq!(second.aio_return().unwrap(), wbuf2clone.len() as isize);
+    f.seek(SeekFrom::Start(2)).unwrap();
+    let len = f.read(&mut rbuf2).unwrap();
+    assert_eq!(len, wbuf2clone.len());
+    assert_eq!(rbuf2, wbuf2clone.to_vec());
+    let buf_ref = second.into_buf_ref();
+    assert_eq!(buf_ref.bytes().unwrap(), &wbuf2clone.deref());
+
+    let third = iter.next().unwrap();
+    third.error().unwrap();
+    assert_eq!(third.aio_return().unwrap(), EXPECT3.len() as isize);
+    let buf_ref = third.into_buf_ref();
+    assert_eq!(buf_ref.bytes_mut().unwrap(), &EXPECT3);
 }
