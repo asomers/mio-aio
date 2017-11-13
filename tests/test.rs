@@ -10,7 +10,6 @@ use bytes::{Bytes, BytesMut};
 use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
-use std::borrow::Borrow;
 use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
@@ -302,15 +301,15 @@ pub fn test_lio_oneread() {
     const INITIAL: &'static [u8] = b"abcdef123456";
     const EXPECT: &'static [u8] = b"cdef";
     let mut f = tempfile().unwrap();
-    let buf = Rc::new(vec![0; 4].into_boxed_slice());
+    let buf = BytesMut::from(vec![0; 4]);
     f.write(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut liocb = mio_aio::LioCb::with_capacity(1);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 2, buf.clone(), 0,
-                              mio_aio::LioOpcode::LIO_READ);
+    liocb.emplace_bytes_mut(f.as_raw_fd(), 2, buf, 0,
+                            mio_aio::LioOpcode::LIO_READ);
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -322,14 +321,16 @@ pub fn test_lio_oneread() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    liocb[0].error().unwrap();
-    assert_eq!(liocb[0].aio_return().unwrap(), EXPECT.len() as isize);
-    assert!(buf.deref().deref() == EXPECT);
+    let mut i = liocb.into_aiocbs();
+    let aiocb = i.next().unwrap();
+    assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+    assert_eq!(aiocb.into_buf_ref().bytes_mut().unwrap(), EXPECT);
+    assert!(i.next().is_none());
 }
 
 #[test]
 pub fn test_lio_onewrite() {
-    let wbuf = Rc::new(String::from("abcdef").into_bytes().into_boxed_slice());
+    let wbuf = Bytes::from(&b"abcdef"[..]);
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
@@ -337,8 +338,8 @@ pub fn test_lio_onewrite() {
     let mut events = Events::with_capacity(1024);
 
     let mut liocb = mio_aio::LioCb::with_capacity(1);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 0, wbuf.clone(), 0,
-                              mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_bytes(f.as_raw_fd(), 0, wbuf.clone(), 0,
+                        mio_aio::LioOpcode::LIO_WRITE);
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -355,7 +356,7 @@ pub fn test_lio_onewrite() {
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, wbuf.len());
-    assert_eq!(&rbuf.into_boxed_slice(), wbuf.borrow());
+    assert_eq!(wbuf, &rbuf);
 }
 
 // Write from a constant buffer
@@ -396,20 +397,18 @@ pub fn test_lio_tworeads() {
     const EXPECT0: &'static [u8] = b"cdef";
     const EXPECT1: &'static [u8] = b"23456";
     let mut f = tempfile().unwrap();
-    let bufs = vec![
-        Rc::new(vec![0; 4].into_boxed_slice()),
-        Rc::new(vec![0; 5].into_boxed_slice())
-    ];
+    let rbuf0 = BytesMut::from(vec![0; 4]);
+    let rbuf1 = BytesMut::from(vec![0; 5]);
     f.write(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 2, bufs[0].clone(), 0,
-                              mio_aio::LioOpcode::LIO_READ);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 7, bufs[1].clone(), 0,
-                              mio_aio::LioOpcode::LIO_READ);
+    liocb.emplace_bytes_mut(f.as_raw_fd(), 2, rbuf0, 0,
+                            mio_aio::LioOpcode::LIO_READ);
+    liocb.emplace_bytes_mut(f.as_raw_fd(), 7, rbuf1, 0,
+                            mio_aio::LioOpcode::LIO_READ);
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -422,13 +421,18 @@ pub fn test_lio_tworeads() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    liocb[0].error().unwrap();
-    assert_eq!(liocb[0].aio_return().unwrap(), EXPECT0.len() as isize);
-    assert!(bufs[0].deref().deref() == EXPECT0);
+    let mut i = liocb.into_aiocbs();
+    let aiocb0 = i.next().unwrap();
+    aiocb0.error().unwrap();
+    assert_eq!(aiocb0.aio_return().unwrap(), EXPECT0.len() as isize);
+    assert_eq!(aiocb0.into_buf_ref().bytes_mut().unwrap(), EXPECT0);
 
-    liocb[1].error().unwrap();
-    assert_eq!(liocb[1].aio_return().unwrap(), EXPECT1.len() as isize);
-    assert!(bufs[1].deref().deref() == EXPECT1);
+    let aiocb1 = i.next().unwrap();
+    aiocb1.error().unwrap();
+    assert_eq!(aiocb1.aio_return().unwrap(), EXPECT1.len() as isize);
+    assert_eq!(aiocb1.into_buf_ref().bytes_mut().unwrap(), EXPECT1);
+
+    assert!(i.next().is_none());
 }
 
 #[test]
@@ -438,7 +442,7 @@ pub fn test_lio_read_and_write() {
     const EXPECT0: &'static [u8] = b"cdef";
     let mut f0 = tempfile().unwrap();
     let mut f1 = tempfile().unwrap();
-    let rbuf0 = Rc::new(vec![0; 4].into_boxed_slice());
+    let rbuf0 = BytesMut::from(vec![0; 4]);
     let mut rbuf1 = Vec::new();
     f0.write(INITIAL0).unwrap();
 
@@ -446,8 +450,8 @@ pub fn test_lio_read_and_write() {
     let mut events = Events::with_capacity(1024);
 
     let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_boxed_slice(f0.as_raw_fd(), 2, rbuf0.clone(), 0,
-                              mio_aio::LioOpcode::LIO_READ);
+    liocb.emplace_bytes_mut(f0.as_raw_fd(), 2, rbuf0, 0,
+                            mio_aio::LioOpcode::LIO_READ);
     liocb.emplace_slice(f1.as_raw_fd(), 0, WBUF1, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
@@ -462,12 +466,16 @@ pub fn test_lio_read_and_write() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    liocb[0].error().unwrap();
-    assert_eq!(liocb[0].aio_return().unwrap(), EXPECT0.len() as isize);
-    assert!(rbuf0.deref().deref() == EXPECT0);
+    let mut iter = liocb.into_iter();
 
-    liocb[1].error().unwrap();
-    assert_eq!(liocb[1].aio_return().unwrap(), WBUF1.len() as isize);
+    let first = iter.next().unwrap();
+    first.error().unwrap();
+    assert_eq!(first.aio_return().unwrap(), EXPECT0.len() as isize);
+    assert_eq!(first.into_buf_ref().bytes_mut().unwrap(), EXPECT0);
+
+    let second = iter.next().unwrap();
+    second.error().unwrap();
+    assert_eq!(second.aio_return().unwrap(), WBUF1.len() as isize);
     f1.seek(SeekFrom::Start(0)).unwrap();
     let len = f1.read_to_end(&mut rbuf1).unwrap();
     assert_eq!(len, WBUF1.len());

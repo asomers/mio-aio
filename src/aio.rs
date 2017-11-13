@@ -7,7 +7,7 @@ use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
 use std::cell::{Cell, RefCell};
 use std::io;
-use std::iter::FromIterator;
+use std::iter::{Iterator, FromIterator};
 use std::mem;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::os::unix::io::AsRawFd;
@@ -340,6 +340,14 @@ impl<'a> LioCb<'a> {
                          buf: &'a [u8], prio: i32, opcode: LioOpcode) {
         let aiocb = AioCb::from_slice(fd, offset, buf, prio as c_int, opcode);
         self.inner.push(aiocb);
+    }
+
+    /// Consume the `LioCb` and return its inners `AioCb`s
+    ///
+    /// It is an error to call this method while the `LioCb` is still in
+    /// progress.
+    pub fn into_aiocbs(self) -> Box<Iterator<Item = AioCb<'a>> + 'a> {
+        Box::new(self.inner.into_iter())
     }
 
     /// Iterate over all `AioCb` contained within the `LioCb`
