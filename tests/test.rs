@@ -13,7 +13,6 @@ use tempfile::tempfile;
 use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
-use std::rc::Rc;
 
 
 const UDATA: Token = Token(0xdeadbeef);
@@ -165,40 +164,6 @@ pub fn test_aio_read_bytes_big() {
     assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     let buf_ref = aiocb.into_buf_ref();
     assert!(buf_ref.bytes_mut().unwrap() == EXPECT);
-}
-
-#[test]
-#[allow(deprecated)]
-pub fn test_aio_write_boxed() {
-    let wbuf = Rc::new(String::from("abcdef").into_bytes().into_boxed_slice());
-    let mut f = tempfile().unwrap();
-    let mut rbuf = Vec::new();
-
-    let poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-    let aiocb = mio_aio::AioCb::from_boxed_slice(f.as_raw_fd(),
-        0,   //offset
-        wbuf.clone(),
-        0,   //priority
-        mio_aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
-        .expect("registration failed");
-
-    aiocb.write().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_aio());
-
-    assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
-    f.seek(SeekFrom::Start(0)).unwrap();
-    let len = f.read_to_end(&mut rbuf).unwrap();
-    assert!(len == wbuf.len());
-    assert!(rbuf == wbuf.deref().deref());
-    let buf_ref = aiocb.into_buf_ref();
-    assert_eq!(buf_ref.boxed_slice().unwrap(), &wbuf);
 }
 
 #[test]

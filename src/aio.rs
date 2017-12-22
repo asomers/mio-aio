@@ -12,7 +12,6 @@ use std::mem;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
-use std::rc::Rc;
 use std::slice;
 
 pub use nix::sys::aio::AioFsyncMode;
@@ -26,12 +25,6 @@ pub enum BufRef {
     /// Either the `AioCb` has no buffer, as for an fsync operation, or a
     /// reference can't be stored, as when constructed from a slice
     None,
-    /// `Rc`d boxed slice.
-    #[deprecated(
-        since="0.2.0",
-        note="Boxed slices aren't very useful since they can only be used for writes.  Best to replace them with `Bytes` or `BytesMut`"
-    )]
-    BoxedSlice(Rc<Box<[u8]>>),
     /// Immutable shared ownership `Bytes` object
     // Must use out-of-line allocation so the address of the data will be
     // stable.  Bytes and BytesMut sometimes dynamically allocate a buffer, and
@@ -42,19 +35,6 @@ pub enum BufRef {
 }
 
 impl BufRef {
-    /// Return the inner BoxedSlice, if any
-    #[deprecated(
-        since="0.2.0",
-        note="Boxed slices aren't very useful since they can only be used for writes.  Best to replace them with `Bytes` or `BytesMut`"
-    )]
-    #[allow(deprecated)]
-    pub fn boxed_slice(&self) -> Option<&Rc<Box<[u8]>>> {
-        match self {
-            &BufRef::BoxedSlice(ref x) => Some(x),
-            _ => None
-        }
-    }
-
     /// Return the inner `Bytes`, if any
     pub fn bytes(&self) -> Option<&Bytes> {
         match self {
@@ -103,20 +83,6 @@ impl<'a> AioCb<'a> {
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
         AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: BufRef::None }
-    }
-
-    /// Wraps nix::sys::aio::AioCb::from_boxed_slice.
-    #[deprecated(
-        since="0.2.0",
-        note="`from_boxed_slice` isn't very useful since it can only be used for writes.  Best to replace it with `from_bytes` or `from_bytes_mut`"
-    )]
-    #[allow(deprecated)]
-    pub fn from_boxed_slice(fd: RawFd, offs: off_t, buf: Rc<Box<[u8]>>,
-                          prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
-        let buf_ref = BufRef::BoxedSlice(buf.clone());
-        let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
-                                               SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref  }
     }
 
     /// Creates a nix::sys::aio::AioCb from a bytes::Bytes slice
@@ -309,18 +275,6 @@ impl<'a> LioCb<'a> {
         }));
         let aiolist = vec_of_refs.as_slice();
         aio::lio_listio(aio::LioMode::LIO_NOWAIT, aiolist, self.sev.get())
-    }
-
-    #[deprecated(
-        since="0.2.0",
-        note="`from_boxed_slice` isn't very useful since it can only be used for writes.  Best to replace it with `from_bytes` or `from_bytes_mut`"
-    )]
-    #[allow(deprecated)]
-    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: off_t,
-                               buf: Rc<Box<[u8]>>, prio: i32, opcode: LioOpcode){
-        let aiocb = AioCb::from_boxed_slice(fd, offset, buf.clone(),
-                                            prio as c_int, opcode);
-        self.inner.push(aiocb);
     }
 
     pub fn emplace_bytes(&mut self, fd: RawFd, offset: off_t,
