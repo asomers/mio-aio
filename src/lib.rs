@@ -1,7 +1,6 @@
 //! MIO bindings for POSIX AIO
 
 extern crate bytes;
-extern crate libc;
 extern crate mio;
 extern crate nix;
 

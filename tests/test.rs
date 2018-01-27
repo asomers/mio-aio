@@ -1,5 +1,4 @@
 extern crate bytes;
-extern crate libc;
 extern crate env_logger;
 extern crate mio;
 extern crate mio_aio;

@@ -13,7 +13,6 @@ keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
 bytes = "0.4.5"
-libc = "0.2"
 mio = { git = "https://github.com/carllerche/mio", rev = "726b1f3078e79e69c3961f8af32e76e06c49a3f2" }
 nix = "0.10.0"
 

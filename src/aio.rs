@@ -1,5 +1,5 @@
 use bytes::{Bytes, BytesMut};
-use libc::{c_int, c_void, off_t};
+use nix::libc::{c_int, c_void, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
 use nix;
