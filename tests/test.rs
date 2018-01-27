@@ -35,13 +35,14 @@ pub fn test_aio_cancel() {
     aiocb.cancel().ok().expect("aio_cancel failed");
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
     // Since we cancelled the I/O, we musn't care whether it succeeded.
     let _ = aiocb.aio_return();
+    assert!(it.next().is_none());
 }
 
 
@@ -59,12 +60,13 @@ pub fn test_aio_fsync() {
 
     aiocb.fsync(mio_aio::AioFsyncMode::O_SYNC).unwrap();
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
     aiocb.aio_return().unwrap();
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -89,12 +91,13 @@ pub fn test_aio_read() {
         aiocb.read().unwrap();
 
         poll.poll(&mut events, None).expect("poll failed");
-        assert_eq!(events.len(), 1);
-        let ev = events.get(0).unwrap();
+        let mut it = events.iter();
+        let ev = it.next().unwrap();
         assert_eq!(ev.token(), UDATA);
         assert!(UnixReady::from(ev.readiness()).is_aio());
 
         assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+        assert!(it.next().is_none());
     }
     assert!(rbuf.deref().deref() == EXPECT);
 }
@@ -122,14 +125,15 @@ pub fn test_aio_read_bytes_small() {
     aiocb.read().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
     assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     let buf_ref = aiocb.into_buf_ref();
     assert!(buf_ref.bytes_mut().unwrap() == EXPECT);
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -155,14 +159,15 @@ pub fn test_aio_read_bytes_big() {
     aiocb.read().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
     assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     let buf_ref = aiocb.into_buf_ref();
     assert!(buf_ref.bytes_mut().unwrap() == EXPECT);
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -184,8 +189,8 @@ pub fn test_aio_write_bytes() {
     aiocb.write().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
@@ -196,6 +201,7 @@ pub fn test_aio_write_bytes() {
     assert!(rbuf == wbuf.deref().deref());
     let buf_ref = aiocb.into_buf_ref();
     assert_eq!(buf_ref.bytes().unwrap(), &wbuf.deref());
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -217,8 +223,8 @@ pub fn test_aio_write_slice() {
     aiocb.write().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
@@ -227,6 +233,7 @@ pub fn test_aio_write_slice() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert!(len == wbuf.len());
     assert!(rbuf == wbuf.deref().deref());
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -248,8 +255,8 @@ pub fn test_aio_write_static() {
     aiocb.write().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
@@ -258,6 +265,7 @@ pub fn test_aio_write_static() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert!(len == WBUF.len());
     assert!(rbuf == WBUF);
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -280,8 +288,8 @@ pub fn test_lio_oneread() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -290,6 +298,7 @@ pub fn test_lio_oneread() {
     assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     assert_eq!(aiocb.into_buf_ref().bytes_mut().unwrap(), EXPECT);
     assert!(i.next().is_none());
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -310,8 +319,8 @@ pub fn test_lio_onewrite() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -321,6 +330,7 @@ pub fn test_lio_onewrite() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, wbuf.len());
     assert_eq!(wbuf, &rbuf);
+    assert!(it.next().is_none());
 }
 
 // Write from a constant buffer
@@ -342,8 +352,8 @@ pub fn test_lio_onewrite_from_slice() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -353,6 +363,7 @@ pub fn test_lio_onewrite_from_slice() {
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, WBUF.len());
     assert_eq!(rbuf, WBUF);
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -379,9 +390,8 @@ pub fn test_lio_tworeads() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -397,6 +407,7 @@ pub fn test_lio_tworeads() {
     assert_eq!(aiocb1.into_buf_ref().bytes_mut().unwrap(), EXPECT1);
 
     assert!(i.next().is_none());
+    assert!(it.next().is_none());
 }
 
 #[test]
@@ -424,9 +435,8 @@ pub fn test_lio_read_and_write() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -444,6 +454,7 @@ pub fn test_lio_read_and_write() {
     let len = f1.read_to_end(&mut rbuf1).unwrap();
     assert_eq!(len, WBUF1.len());
     assert_eq!(rbuf1, WBUF1);
+    assert!(it.next().is_none());
 }
 
 // An lio operation that contains every variant of BufRef.  Tests retrieving the
@@ -480,9 +491,8 @@ pub fn test_lio_buf_ref() {
     liocb.listio().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
-    assert_eq!(events.len(), 1);
-
-    let ev = events.get(0).unwrap();
+    let mut it = events.iter();
+    let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
@@ -513,4 +523,5 @@ pub fn test_lio_buf_ref() {
     assert_eq!(third.aio_return().unwrap(), EXPECT3.len() as isize);
     let buf_ref = third.into_buf_ref();
     assert_eq!(buf_ref.bytes_mut().unwrap(), &EXPECT3);
+    assert!(it.next().is_none());
 }
