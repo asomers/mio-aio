@@ -12,9 +12,9 @@ categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
-libc = "0.2"
-mio = "0.6.9"
-nix = "0.9.0"
+bytes = "0.4.5"
+mio = "0.6.13"
+nix = "0.10.0"
 
 [dev-dependencies]
 tempfile = "2"
