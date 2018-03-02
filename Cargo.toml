@@ -13,6 +13,7 @@ keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
 bytes = "0.4.5"
+divbuf = "0.1"
 mio = "0.6.13"
 nix = "0.10.0"
 

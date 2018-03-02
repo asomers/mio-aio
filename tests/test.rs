@@ -1,4 +1,5 @@
 extern crate bytes;
+extern crate divbuf;
 extern crate env_logger;
 extern crate mio;
 extern crate mio_aio;
@@ -6,6 +7,7 @@ extern crate nix;
 extern crate tempfile;
 
 use bytes::{Bytes, BytesMut};
+use divbuf::DivBufShared;
 use mio::{Events, Poll, PollOpt, Token};
 use mio::unix::UnixReady;
 use tempfile::tempfile;
@@ -460,18 +462,26 @@ pub fn test_lio_read_and_write() {
 // An lio operation that contains every variant of BufRef.  Tests retrieving the
 // BufRefs once the operation is complete.
 // Op 1: write from static slice
-// Op 2: write from bytes
+// Op 2: write from Bytes
 // Op 3: read into BytesMut
+// Op 4: write from DivBuf
+// Op 5: Read into DivBufMut
 #[test]
 pub fn test_lio_buf_ref() {
-    const INITIAL: &'static [u8] = b"abcdef123456";
+    const INITIAL: &'static [u8] = b"abcdefghijklmnopqrstuvwxyz";
     const WBUF1: &'static [u8] = b"AB";
     let mut rbuf1 = vec![0u8; 2];
     let wbuf2 = Bytes::from(&b"CDEF"[..]);
     let wbuf2clone = wbuf2.clone();
     let mut rbuf2 = vec![0u8; 4];
     let rbuf3 = BytesMut::from(vec![0; 6]);
-    const EXPECT3: &'static [u8] = b"123456";
+    const EXPECT3: &'static [u8] = b"klmnop";
+    let dbs4 = DivBufShared::from(&b"QXYZ"[..]);
+    let db4 = dbs4.try().unwrap();
+    let mut rbuf4 = vec![0u8; 4];
+    let dbs5 = DivBufShared::from(vec![0; 8]);
+    let dbm5 = dbs5.try_mut().unwrap();
+    const EXPECT5: &'static [u8] = b"qrstuvwx";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
 
@@ -483,7 +493,11 @@ pub fn test_lio_buf_ref() {
                         mio_aio::LioOpcode::LIO_WRITE);
     liocb.emplace_bytes(f.as_raw_fd(), 2, wbuf2, 0,
                               mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_bytes_mut(f.as_raw_fd(), 6, rbuf3, 0,
+    liocb.emplace_bytes_mut(f.as_raw_fd(), 10, rbuf3, 0,
+                              mio_aio::LioOpcode::LIO_READ);
+    liocb.emplace_divbuf(f.as_raw_fd(), 6, db4, 0,
+                              mio_aio::LioOpcode::LIO_WRITE);
+    liocb.emplace_divbuf_mut(f.as_raw_fd(), 16, dbm5, 0,
                               mio_aio::LioOpcode::LIO_READ);
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
@@ -523,5 +537,22 @@ pub fn test_lio_buf_ref() {
     assert_eq!(third.aio_return().unwrap(), EXPECT3.len() as isize);
     let buf_ref = third.into_buf_ref();
     assert_eq!(buf_ref.bytes_mut().unwrap(), &EXPECT3);
+
+    let fourth = iter.next().unwrap();
+    fourth.error().unwrap();
+    assert_eq!(fourth.aio_return().unwrap(), dbs4.len() as isize);
+    f.seek(SeekFrom::Start(6)).unwrap();
+    let len = f.read(&mut rbuf4).unwrap();
+    assert_eq!(len, dbs4.len());
+    assert_eq!(rbuf4[..], dbs4.try().unwrap()[..]);
+    let buf_ref = fourth.into_buf_ref();
+    assert_eq!(buf_ref.divbuf().unwrap(), &rbuf4[..]);
+
+    let fifth = iter.next().unwrap();
+    fifth.error().unwrap();
+    assert_eq!(fifth.aio_return().unwrap(), EXPECT5.len() as isize);
+    let buf_ref = fifth.into_buf_ref();
+    assert_eq!(buf_ref.divbuf_mut().unwrap(), &EXPECT5[..]);
+
     assert!(it.next().is_none());
 }

@@ -1,4 +1,5 @@
 use bytes::{Bytes, BytesMut};
+use divbuf::{DivBuf, DivBufMut};
 use nix::libc::{c_int, c_void, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
@@ -31,7 +32,11 @@ pub enum BufRef {
     // sometimes inline the data within the struct itself.
     Bytes(Bytes),
     /// Mutable uniquely owned `BytesMut` object
-    BytesMut(BytesMut)
+    BytesMut(BytesMut),
+    /// Immutable shared ownership `DivBuf` object
+    DivBuf(DivBuf),
+    /// Mutable shared ownership `DivBufMut` object
+    DivBufMut(DivBufMut)
 }
 
 impl BufRef {
@@ -47,6 +52,22 @@ impl BufRef {
     pub fn bytes_mut(&self) -> Option<&BytesMut> {
         match self {
             &BufRef::BytesMut(ref x) => Some(x),
+            _ => None
+        }
+    }
+
+    /// Return the inner `DivBuf`, if any
+    pub fn divbuf(&self) -> Option<&DivBuf> {
+        match self {
+            &BufRef::DivBuf(ref x) => Some(x),
+            _ => None
+        }
+    }
+
+    /// Return the inner `DivBufMut`, if any
+    pub fn divbuf_mut(&self) -> Option<&DivBufMut> {
+        match self {
+            &BufRef::DivBufMut(ref x) => Some(x),
             _ => None
         }
     }
@@ -137,6 +158,34 @@ impl<'a> AioCb<'a> {
                                      opcode)
         };
         let buf_ref = BufRef::BytesMut(buf2);
+        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
+    }
+
+    /// Creates a nix::sys::aio::AioCb from a divbuf::DivBuf slice
+    pub fn from_divbuf(fd: RawFd, offs: off_t, buf: DivBuf, prio: c_int,
+                      opcode: LioOpcode) -> AioCb<'a> {
+        // Safety: ok because we keep a reference to buf in buf_ref
+        let aiocb = unsafe {
+            aio::AioCb::from_ptr(fd, offs,
+                                 buf.as_ptr() as *const c_void,
+                                 buf.len(), prio, SigevNotify::SigevNone,
+                                 opcode)
+        };
+        let buf_ref = BufRef::DivBuf(buf);
+        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
+    }
+
+    /// Creates a nix::sys::aio::AioCb from a divbuf::DivBufMut slice
+    pub fn from_divbuf_mut(fd: RawFd, offs: off_t, mut buf: DivBufMut,
+                          prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
+        // Safety: ok because we keep a reference to buf in buf_ref
+        let aiocb = unsafe {
+            aio::AioCb::from_mut_ptr(fd, offs,
+                                     buf.as_mut_ptr() as *mut c_void,
+                                     buf.len(), prio, SigevNotify::SigevNone,
+                                     opcode)
+        };
+        let buf_ref = BufRef::DivBufMut(buf);
         AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
     }
 
@@ -286,6 +335,19 @@ impl<'a> LioCb<'a> {
     pub fn emplace_bytes_mut(&mut self, fd: RawFd, offset: off_t,
                          buf: BytesMut, prio: i32, opcode: LioOpcode) {
         let aiocb = AioCb::from_bytes_mut(fd, offset, buf, prio as c_int,
+                                          opcode);
+        self.inner.push(aiocb);
+    }
+
+    pub fn emplace_divbuf(&mut self, fd: RawFd, offset: off_t,
+                         buf: DivBuf, prio: i32, opcode: LioOpcode) {
+        let aiocb = AioCb::from_divbuf(fd, offset, buf, prio as c_int, opcode);
+        self.inner.push(aiocb);
+    }
+
+    pub fn emplace_divbuf_mut(&mut self, fd: RawFd, offset: off_t,
+                         buf: DivBufMut, prio: i32, opcode: LioOpcode) {
+        let aiocb = AioCb::from_divbuf_mut(fd, offset, buf, prio as c_int,
                                           opcode);
         self.inner.push(aiocb);
     }
