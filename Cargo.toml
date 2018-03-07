@@ -12,12 +12,11 @@ categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
-bytes = "0.4.5"
-divbuf = "0.1"
 mio = "0.6.13"
-nix = "0.10.0"
+nix = { git = "https://github.com/asomers/nix", rev = "71fe963" }
 
 [dev-dependencies]
-tempfile = "2"
-log = "0.3.1"
+divbuf = { git = "https://github.com/asomers/divbuf", rev = "70104b4" }
 env_logger = { version = "0.3.0", default-features = false }
+log = "0.3.1"
+tempfile = "2"

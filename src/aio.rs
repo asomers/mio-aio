@@ -1,73 +1,46 @@
-use bytes::{Bytes, BytesMut};
-use divbuf::{DivBuf, DivBufMut};
-use nix::libc::{c_int, c_void, off_t};
+use nix::libc::{c_int, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
 use nix;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
+use std::borrow::{Borrow, BorrowMut};
 use std::cell::{Cell, RefCell};
 use std::io;
-use std::iter::{Iterator, FromIterator};
-use std::mem;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::iter::Iterator;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
-use std::slice;
 
 pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
 
+
 /// Stores a reference to the buffer used by the `AioCb`, if any.
 ///
-/// After the I/O operation is done, can be retrieved by `into_buf_ref`
-#[derive(Debug)]
+/// After the I/O operation is done, can be retrieved by `buf_ref`
 pub enum BufRef {
     /// Either the `AioCb` has no buffer, as for an fsync operation, or a
     /// reference can't be stored, as when constructed from a slice
     None,
-    /// Immutable shared ownership `Bytes` object
-    // Must use out-of-line allocation so the address of the data will be
-    // stable.  Bytes and BytesMut sometimes dynamically allocate a buffer, and
-    // sometimes inline the data within the struct itself.
-    Bytes(Bytes),
-    /// Mutable uniquely owned `BytesMut` object
-    BytesMut(BytesMut),
-    /// Immutable shared ownership `DivBuf` object
-    DivBuf(DivBuf),
-    /// Mutable shared ownership `DivBufMut` object
-    DivBufMut(DivBufMut)
+    /// Immutable generic boxed slice
+    BoxedSlice(Box<Borrow<[u8]>>),
+    /// Mutable generic boxed slice
+    BoxedMutSlice(Box<BorrowMut<[u8]>>)
 }
 
 impl BufRef {
-    /// Return the inner `Bytes`, if any
-    pub fn bytes(&self) -> Option<&Bytes> {
+    /// Return the inner `BoxedSlice`, if any
+    pub fn boxed_slice(&self) -> Option<&Box<Borrow<[u8]>>> {
         match self {
-            &BufRef::Bytes(ref x) => Some(x),
+            &BufRef::BoxedSlice(ref x) => Some(x),
             _ => None
         }
     }
 
-    /// Return the inner `BytesMut`, if any
-    pub fn bytes_mut(&self) -> Option<&BytesMut> {
+    /// Return the inner `BoxedMutSlice`, if any
+    pub fn boxed_mut_slice(&mut self) -> Option<&mut Box<BorrowMut<[u8]>>> {
         match self {
-            &BufRef::BytesMut(ref x) => Some(x),
-            _ => None
-        }
-    }
-
-    /// Return the inner `DivBuf`, if any
-    pub fn divbuf(&self) -> Option<&DivBuf> {
-        match self {
-            &BufRef::DivBuf(ref x) => Some(x),
-            _ => None
-        }
-    }
-
-    /// Return the inner `DivBufMut`, if any
-    pub fn divbuf_mut(&self) -> Option<&DivBufMut> {
-        match self {
-            &BufRef::DivBufMut(ref x) => Some(x),
+            &mut BufRef::BoxedMutSlice(ref mut x) => Some(x),
             _ => None
         }
     }
@@ -81,6 +54,23 @@ impl BufRef {
     }
 }
 
+
+/// Consume a nix::sys::aio::Buffer and return a mio_aio::BufRef
+fn nix_buffer_to_buf_ref(b: aio::Buffer) -> BufRef {
+    match b {
+        aio::Buffer::BoxedSlice(x) => BufRef::BoxedSlice(x),
+        aio::Buffer::BoxedMutSlice(x) => BufRef::BoxedMutSlice(x),
+        _ => BufRef::None
+    }
+}
+
+/// Represents the result of an individual operation from an `LioCb::listio`
+/// call.
+pub struct LioResult {
+    pub buf_ref: BufRef,
+    pub result: nix::Result<isize>
+}
+
 #[derive(Debug)]
 pub struct AioCb<'a> {
     // Must use a RefCell because mio::Evented's methods only take immutable
@@ -89,10 +79,6 @@ pub struct AioCb<'a> {
     // constant.  It is an error to move a libc::aiocb after passing it to the
     // kernel.
     inner: RefCell<Box<aio::AioCb<'a>>>,
-    // buf_ref is needed to keep references from dropping, but only for data
-    // types that nix doesn't understand.  It can also be used for transfering
-    // ownership of uniquely owned buffers between mio_aio and higher level code
-    buf_ref: BufRef
 }
 
 /// Wrapper around nix::sys::aio::AioCb.
@@ -103,90 +89,25 @@ impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::AioCb::from_fd.
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: BufRef::None }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
-    /// Creates a nix::sys::aio::AioCb from a bytes::Bytes slice
-    pub fn from_bytes(fd: RawFd, offs: off_t, buf: Bytes, prio: c_int,
-                      opcode: LioOpcode) -> AioCb<'a> {
-        // Small Bytes are stored inline.  Inline storage is a no-no, because we
-        // store a pointer to the buffer in the AioCb before returning the
-        // BufRef by move.  If the buffer is too small, reallocate it to force
-        // out-of-line storage
-        // TODO: Add an is_inline() method to Bytes, and a way to explicitly
-        // force out-of-line allocation.
-        let buf2 = if buf.len() < 64 {
-            // Reallocate to force out-of-line allocation
-            let mut ool = Bytes::with_capacity(64);
-            ool.extend_from_slice(buf.deref());
-            ool
-        } else {
-            buf
-        };
-        // Safety: ok because we keep a reference to buf2 in buf_ref
-        let aiocb = unsafe {
-            aio::AioCb::from_ptr(fd, offs,
-                                 buf2.as_ptr() as *const c_void,
-                                 buf2.len(), prio, SigevNotify::SigevNone,
-                                 opcode)
-        };
-        let buf_ref = BufRef::Bytes(buf2);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
+    /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
+    pub fn from_boxed_slice(fd: RawFd, offs: off_t, buf: Box<Borrow<[u8]>>,
+                            prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
+        let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
+            SigevNotify::SigevNone, opcode);
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
-    /// Creates a nix::sys::aio::AioCb from a bytes::BytesMut slice
-    pub fn from_bytes_mut(fd: RawFd, offs: off_t, buf: BytesMut,
-                          prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
-        // Small BytesMuts are stored inline.  Inline storage is a no-no,
-        // because we store a pointer to the buffer in the AioCb before
-        // returning the BufRef by move.  If the buffer is too small, reallocate
-        // it to force out-of-line storage
-        // TODO: Add an is_inline() method to BytesMut, and a way to explicitly
-        // force out-of-line allocation.
-        let mut buf2 = if buf.len() < 64 {
-            let mut ool = BytesMut::with_capacity(64);
-            ool.extend_from_slice(buf.deref());
-            ool
-        } else {
-            buf
-        };
-        // Safety: ok because we keep a reference to buf2 in buf_ref
-        let aiocb = unsafe {
-            aio::AioCb::from_mut_ptr(fd, offs,
-                                     buf2.as_mut_ptr() as *mut c_void,
-                                     buf2.len(), prio, SigevNotify::SigevNone,
-                                     opcode)
-        };
-        let buf_ref = BufRef::BytesMut(buf2);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
-    }
-
-    /// Creates a nix::sys::aio::AioCb from a divbuf::DivBuf slice
-    pub fn from_divbuf(fd: RawFd, offs: off_t, buf: DivBuf, prio: c_int,
-                      opcode: LioOpcode) -> AioCb<'a> {
-        // Safety: ok because we keep a reference to buf in buf_ref
-        let aiocb = unsafe {
-            aio::AioCb::from_ptr(fd, offs,
-                                 buf.as_ptr() as *const c_void,
-                                 buf.len(), prio, SigevNotify::SigevNone,
-                                 opcode)
-        };
-        let buf_ref = BufRef::DivBuf(buf);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
-    }
-
-    /// Creates a nix::sys::aio::AioCb from a divbuf::DivBufMut slice
-    pub fn from_divbuf_mut(fd: RawFd, offs: off_t, mut buf: DivBufMut,
-                          prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
-        // Safety: ok because we keep a reference to buf in buf_ref
-        let aiocb = unsafe {
-            aio::AioCb::from_mut_ptr(fd, offs,
-                                     buf.as_mut_ptr() as *mut c_void,
-                                     buf.len(), prio, SigevNotify::SigevNone,
-                                     opcode)
-        };
-        let buf_ref = BufRef::DivBufMut(buf);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: buf_ref}
+    /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
+    /// slice
+    pub fn from_boxed_mut_slice(fd: RawFd, offs: off_t,
+                                buf: Box<BorrowMut<[u8]>>, prio: c_int,
+                                opcode: LioOpcode) -> AioCb<'a> {
+        let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs, buf, prio,
+            SigevNotify::SigevNone, opcode);
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Wraps nix::sys::aio::from_mut_slice
@@ -197,7 +118,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_mut_slice(fd, offs, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: BufRef::None }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Wraps nix::sys::aio::from_slice
@@ -207,33 +128,15 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)), buf_ref: BufRef::None  }
+        AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
-    /// Remove the `AioCb`'s inner `BufRef` and return it
+    /// return an `AioCb`'s inner `BufRef`
     ///
     /// It is an error to call this method while the `AioCb` is still in
     /// progress.
-    ///
-    /// XXX This method is only temporary; it will be removed once tokio_core
-    /// supports a `PollEvented::into_inner` method.
-    ///
-    /// # Safety
-    ///
-    /// This method can cause an `AioCb`'s inner `BufRef` to be `drop`ped while
-    /// the kernel still has a reference, which makes it unsafe.
-    pub unsafe fn buf_ref(&mut self) -> BufRef {
-        let mut x = BufRef::None;
-        mem::swap(&mut self.buf_ref, &mut x);
-        x
-    }
-
-    /// Consume the `AioCb` and return its inner `BufRef`
-    ///
-    /// It is an error to call this method while the `AioCb` is still in
-    /// progress.
-    pub fn into_buf_ref(self) -> BufRef {
-        self.buf_ref
+    pub fn buf_ref(&mut self) -> BufRef {
+        nix_buffer_to_buf_ref(self.inner.borrow_mut().buffer())
     }
 
     /// Wrapper for nix::sys::aio::aio_return
@@ -298,93 +201,73 @@ impl<'a> Evented for AioCb<'a> {
 
 
 #[derive(Debug)]
-pub struct LioCb<'a> {
+pub struct LioCb {
     // Unlike AioCb, registering this structure does not modify the AioCb's
-    // themselves, so no RefCell is needed.  But we need buf_ref, so it's easier
-    // to simply reuse the mio_aio::AioCb struct, even though we don't need the
-    // RefCell
-    inner: Vec<AioCb<'a>>,
+    // themselves, so no RefCell is needed.
+    inner: aio::LioCb<'static>,
     // A plain Cell suffices, because we can Copy SigevNotify's.
     sev: Cell<SigevNotify>
 }
 
-impl<'a> LioCb<'a> {
+impl LioCb {
     pub fn listio(&mut self) -> nix::Result<()> {
-        // Pacify the borrow checker.  We need to keep these RefMut objects
-        // around until after aiolist goes out of scope
-        let mut vec_of_refmuts = Vec::from_iter(
-            self.inner.iter().map(|mio_aiocb| {
-                mio_aiocb.inner.borrow_mut()
-            }));
-        // Pacify the borrow checker.  We need to keep vec_of_refs around until
-        // aiolist goes out of scope.  If we chain the call to as_slice, the
-        // vector drops too soon.
-        let vec_of_refs = Vec::from_iter(vec_of_refmuts.iter_mut().map(|rm| {
-            rm.deref_mut().deref_mut()
-        }));
-        let aiolist = vec_of_refs.as_slice();
-        aio::lio_listio(aio::LioMode::LIO_NOWAIT, aiolist, self.sev.get())
+        self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev.get())
     }
 
-    pub fn emplace_bytes(&mut self, fd: RawFd, offset: off_t,
-                         buf: Bytes, prio: i32, opcode: LioOpcode) {
-        let aiocb = AioCb::from_bytes(fd, offset, buf, prio as c_int, opcode);
-        self.inner.push(aiocb);
+    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: off_t,
+        buf: Box<Borrow<[u8]>>, prio: i32, opcode: LioOpcode) {
+        self.inner.aiocbs.push(aio::AioCb::from_boxed_slice(fd, offset, buf,
+            prio as c_int, SigevNotify::SigevNone, opcode))
+
     }
 
-    pub fn emplace_bytes_mut(&mut self, fd: RawFd, offset: off_t,
-                         buf: BytesMut, prio: i32, opcode: LioOpcode) {
-        let aiocb = AioCb::from_bytes_mut(fd, offset, buf, prio as c_int,
-                                          opcode);
-        self.inner.push(aiocb);
-    }
-
-    pub fn emplace_divbuf(&mut self, fd: RawFd, offset: off_t,
-                         buf: DivBuf, prio: i32, opcode: LioOpcode) {
-        let aiocb = AioCb::from_divbuf(fd, offset, buf, prio as c_int, opcode);
-        self.inner.push(aiocb);
-    }
-
-    pub fn emplace_divbuf_mut(&mut self, fd: RawFd, offset: off_t,
-                         buf: DivBufMut, prio: i32, opcode: LioOpcode) {
-        let aiocb = AioCb::from_divbuf_mut(fd, offset, buf, prio as c_int,
-                                          opcode);
-        self.inner.push(aiocb);
+    pub fn emplace_boxed_mut_slice(&mut self, fd: RawFd, offset: off_t,
+        buf: Box<BorrowMut<[u8]>>, prio: i32, opcode: LioOpcode) {
+        self.inner.aiocbs.push(aio::AioCb::from_boxed_mut_slice(fd, offset, buf,
+            prio as c_int, SigevNotify::SigevNone, opcode))
     }
 
     pub fn emplace_slice(&mut self, fd: RawFd, offset: off_t,
-                         buf: &'a [u8], prio: i32, opcode: LioOpcode) {
-        let aiocb = AioCb::from_slice(fd, offset, buf, prio as c_int, opcode);
-        self.inner.push(aiocb);
+                         buf: &'static [u8], prio: i32, opcode: LioOpcode) {
+        let aiocb = aio::AioCb::from_slice(fd, offset, buf, prio as c_int,
+                                           SigevNotify::SigevNone, opcode);
+        self.inner.aiocbs.push(aiocb);
     }
 
     /// Consume the `LioCb` and return its inners `AioCb`s
     ///
     /// It is an error to call this method while the `LioCb` is still in
     /// progress.
-    pub fn into_aiocbs(self) -> Box<Iterator<Item = AioCb<'a>> + 'a> {
-        Box::new(self.inner.into_iter())
+    pub fn into_results(mut self) -> Box<Iterator<Item = LioResult>> {
+        // We can't simply use self.inner.aiocbs.iter_mut(), because iter_mut()
+        // will move the elements, and aio_return relies on them having a stable
+        // location.  So we must build a collection of the aio_return values,
+        // then zip that with the BufRefs
+        let results : Vec<nix::Result<isize>> = self.inner.aiocbs.iter_mut()
+            .map(|ref mut aiocb| {
+                aiocb.aio_return()
+            }).collect();
+        let consuming_iter = self.inner.aiocbs.into_iter().map(|mut aiocb| {
+            nix_buffer_to_buf_ref(aiocb.buffer())
+        });
+
+        Box::new(results.into_iter().zip(consuming_iter).map(|(r, b)| {
+            LioResult {
+                result: r,
+                buf_ref: b,
+            }
+        }))
     }
 
-    /// Iterate over all `AioCb` contained within the `LioCb`
-    pub fn iter(&self) -> slice::Iter<AioCb<'a>> {
-        self.inner.iter()
-    }
-
-    /// Mutably iterate over all `AioCb` contained within the `LioCb`
-    pub fn iter_mut(&mut self) -> slice::IterMut<AioCb<'a>> {
-        self.inner.iter_mut()
-    }
-
-    pub fn with_capacity(capacity: usize) -> LioCb<'a> {
+    pub fn with_capacity(capacity: usize) -> LioCb {
         LioCb {
-            inner: Vec::<AioCb<'a>>::with_capacity(capacity),
+            inner: aio::LioCb::with_capacity(capacity),
             sev: Cell::new(SigevNotify::SigevNone)
         }
     }
 }
 
-impl<'a> Evented for LioCb<'a> {
+impl Evented for LioCb {
     fn register(&self,
                 poll: &Poll,
                 token: Token,
@@ -410,79 +293,5 @@ impl<'a> Evented for LioCb<'a> {
         let sigev = SigevNotify::SigevNone;
         self.sev.set(sigev);
         Ok(())
-    }
-}
-
-impl<'a> IntoIterator for LioCb<'a> {
-    type Item = AioCb<'a>;
-    type IntoIter = ::std::vec::IntoIter<AioCb<'a>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.inner.into_iter()
-    }
-}
-
-impl<'a> Index<usize> for LioCb<'a> {
-    type Output = AioCb<'a>;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.inner[index]
-    }
-}
-
-impl<'a> IndexMut<usize> for LioCb<'a> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.inner[index]
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    pub fn test_lio_iter() {
-        let f : RawFd = 10042;
-        const WBUF: &'static [u8] = b"abcdef";
-
-        let mut liocb = LioCb::with_capacity(2);
-        liocb.emplace_slice(f, 2, WBUF, 0, LioOpcode::LIO_WRITE);
-        liocb.emplace_slice(f, 7, WBUF, 0, LioOpcode::LIO_WRITE);
-        let mut iter = liocb.iter();
-        let first = iter.next().unwrap();
-        assert_eq!(2, first.inner.borrow().offset());
-        let second = iter.next().unwrap();
-        assert_eq!(7, second.inner.borrow().offset());
-    }
-
-    // Only a few `AioCb` methods need a mutable reference.  `error` is one
-    #[test]
-    pub fn test_lio_iter_mut() {
-        let f : RawFd = 10042;
-        const WBUF: &'static [u8] = b"abcdef";
-
-        let mut liocb = LioCb::with_capacity(2);
-        liocb.emplace_slice(f, 2, WBUF, 0, LioOpcode::LIO_WRITE);
-        liocb.emplace_slice(f, 7, WBUF, 0, LioOpcode::LIO_WRITE);
-        let mut iter = liocb.iter_mut();
-        let first = iter.next().unwrap();
-        assert!(first.error().is_err());
-        let second = iter.next().unwrap();
-        assert!(second.error().is_err());
-    }
-
-    #[test]
-    pub fn test_lio_into_iter() {
-        let f : RawFd = 10042;
-        const WBUF: &'static [u8] = b"abcdef";
-
-        let mut liocb = LioCb::with_capacity(2);
-        liocb.emplace_slice(f, 2, WBUF, 0, LioOpcode::LIO_WRITE);
-        liocb.emplace_slice(f, 7, WBUF, 0, LioOpcode::LIO_WRITE);
-        let mut iter = liocb.into_iter();
-        let first = iter.next().unwrap();
-        assert_eq!(2, first.inner.borrow().offset());
-        let second = iter.next().unwrap();
-        assert_eq!(7, second.inner.borrow().offset());
     }
 }
