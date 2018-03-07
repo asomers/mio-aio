@@ -17,6 +17,5 @@ nix = { git = "https://github.com/asomers/nix", rev = "71fe963" }
 
 [dev-dependencies]
 divbuf = { git = "https://github.com/asomers/divbuf", rev = "70104b4" }
-env_logger = { version = "0.3.0", default-features = false }
 log = "0.3.1"
 tempfile = "2"

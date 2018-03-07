@@ -1,5 +1,4 @@
 extern crate divbuf;
-extern crate env_logger;
 extern crate mio;
 extern crate mio_aio;
 extern crate nix;
