@@ -252,7 +252,7 @@ pub fn test_lio_oneread() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -284,7 +284,7 @@ pub fn test_lio_onewrite() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -319,7 +319,7 @@ pub fn test_lio_onewrite_from_slice() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -360,7 +360,7 @@ pub fn test_lio_tworeads() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -404,7 +404,7 @@ pub fn test_lio_read_and_write() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -461,7 +461,7 @@ pub fn test_lio_buf_ref() {
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
-    liocb.listio().unwrap();
+    liocb.submit().unwrap();
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();

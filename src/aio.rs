@@ -64,7 +64,7 @@ fn nix_buffer_to_buf_ref(b: aio::Buffer) -> BufRef {
     }
 }
 
-/// Represents the result of an individual operation from an `LioCb::listio`
+/// Represents the result of an individual operation from an `LioCb::submit`
 /// call.
 pub struct LioResult {
     pub buf_ref: BufRef,
@@ -210,7 +210,7 @@ pub struct LioCb {
 }
 
 impl LioCb {
-    pub fn listio(&mut self) -> nix::Result<()> {
+    pub fn submit(&mut self) -> nix::Result<()> {
         self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev.get())
     }
 
