@@ -260,11 +260,12 @@ pub fn test_lio_oneread() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut i = liocb.into_results();
-    let mut r0 = i.next().unwrap();
-    assert_eq!(r0.result.unwrap(), EXPECT.len() as isize);
-    assert_eq!(r0.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT);
-    assert!(i.next().is_none());
+    liocb.into_results(|mut iter| {
+        let mut lr = iter.next().unwrap();
+        assert_eq!(lr.result.unwrap(), EXPECT.len() as isize);
+        assert_eq!(lr.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT);
+        assert!(iter.next().is_none());
+    });
     assert!(it.next().is_none());
 }
 
@@ -292,10 +293,12 @@ pub fn test_lio_onewrite() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut i = liocb.into_results();
-    let r0 = i.next().unwrap();
     let wbuf1 = dbs.try().unwrap();
-    assert_eq!(r0.result.unwrap(), wbuf1.len() as isize);
+    liocb.into_results(|mut iter| {
+        let lr = iter.next().unwrap();
+        assert_eq!(lr.result.unwrap(), wbuf1.len() as isize);
+        assert!(iter.next().is_none());
+    });
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, wbuf1.len());
@@ -327,9 +330,11 @@ pub fn test_lio_onewrite_from_slice() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut i = liocb.into_results();
-    let r0 = i.next().unwrap();
-    assert_eq!(r0.result.unwrap(), WBUF.len() as isize);
+    liocb.into_results(|mut iter| {
+        let lr = iter.next().unwrap();
+        assert_eq!(lr.result.unwrap(), WBUF.len() as isize);
+        assert!(iter.next().is_none());
+    });
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, WBUF.len());
@@ -368,16 +373,16 @@ pub fn test_lio_tworeads() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut i = liocb.into_results();
-    let mut r0 = i.next().unwrap();
-    assert_eq!(r0.result.unwrap(), EXPECT0.len() as isize);
-    assert_eq!(r0.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT0);
+    liocb.into_results(|mut iter| {
+        let mut lr0 = iter.next().unwrap();
+        assert_eq!(lr0.result.unwrap(), EXPECT0.len() as isize);
+        assert_eq!(lr0.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT0);
+        let mut lr1 = iter.next().unwrap();
+        assert_eq!(lr1.result.unwrap(), EXPECT1.len() as isize);
+        assert_eq!(lr1.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT1);
+        assert!(iter.next().is_none());
+    });
 
-    let mut r1 = i.next().unwrap();
-    assert_eq!(r1.result.unwrap(), EXPECT1.len() as isize);
-    assert_eq!(r1.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT1);
-
-    assert!(i.next().is_none());
     assert!(it.next().is_none());
 }
 
@@ -412,20 +417,22 @@ pub fn test_lio_read_and_write() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut iter = liocb.into_results();
+    liocb.into_results(|mut iter| {
+        let mut lr0 = iter.next().unwrap();
+        assert_eq!(lr0.result.unwrap(), EXPECT0.len() as isize);
+        assert_eq!(lr0.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT0);
 
-    let mut first = iter.next().unwrap();
-    assert_eq!(first.result.unwrap(), EXPECT0.len() as isize);
-    assert_eq!(first.buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT0);
+        let lr1 = iter.next().unwrap();
+        assert_eq!(lr1.result.unwrap(), WBUF1.len() as isize);
 
-    let second = iter.next().unwrap();
-    assert_eq!(second.result.unwrap(), WBUF1.len() as isize);
+        assert!(iter.next().is_none());
+    });
+
     f1.seek(SeekFrom::Start(0)).unwrap();
     let len = f1.read_to_end(&mut rbuf1).unwrap();
     assert_eq!(len, WBUF1.len());
     assert_eq!(rbuf1, WBUF1);
 
-    assert!(iter.next().is_none());
     assert!(it.next().is_none());
 }
 
@@ -469,28 +476,29 @@ pub fn test_lio_buf_ref() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_lio());
 
-    let mut iter = liocb.into_results();
+    liocb.into_results(|mut iter| {
+        let lr0 = iter.next().unwrap();
+        f.seek(SeekFrom::Start(0)).unwrap();
+        let len = f.read(&mut rbuf1).unwrap();
+        assert_eq!(len, WBUF1.len());
+        assert_eq!(rbuf1, WBUF1);
+        assert_eq!(lr0.result.unwrap(), WBUF1.len() as isize);
+        assert!(lr0.buf_ref.is_none());
 
-    let first = iter.next().unwrap();
-    assert_eq!(first.result.unwrap(), WBUF1.len() as isize);
-    assert!(first.buf_ref.is_none());
-    f.seek(SeekFrom::Start(0)).unwrap();
-    let len = f.read(&mut rbuf1).unwrap();
-    assert_eq!(len, WBUF1.len());
-    assert_eq!(rbuf1, WBUF1);
+        let lr1 = iter.next().unwrap();
+        assert_eq!(lr1.result.unwrap(), dbs4.len() as isize);
+        f.seek(SeekFrom::Start(6)).unwrap();
+        let len = f.read(&mut rbuf4).unwrap();
+        assert_eq!(len, dbs4.len());
+        assert_eq!(rbuf4[..], dbs4.try().unwrap()[..]);
+        assert_eq!(lr1.buf_ref.boxed_slice().unwrap().borrow(), &rbuf4[..]);
 
-    let fourth = iter.next().unwrap();
-    assert_eq!(fourth.result.unwrap(), dbs4.len() as isize);
-    f.seek(SeekFrom::Start(6)).unwrap();
-    let len = f.read(&mut rbuf4).unwrap();
-    assert_eq!(len, dbs4.len());
-    assert_eq!(rbuf4[..], dbs4.try().unwrap()[..]);
-    assert_eq!(fourth.buf_ref.boxed_slice().unwrap().borrow(), &rbuf4[..]);
+        let mut lr2 = iter.next().unwrap();
+        assert_eq!(lr2.result.unwrap(), EXPECT5.len() as isize);
+        assert_eq!(lr2.buf_ref.boxed_mut_slice().unwrap().borrow(), &EXPECT5[..]);
 
-    let mut fifth = iter.next().unwrap();
-    assert_eq!(fifth.result.unwrap(), EXPECT5.len() as isize);
-    assert_eq!(fifth.buf_ref.boxed_mut_slice().unwrap().borrow(), &EXPECT5[..]);
+        assert!(iter.next().is_none());
+    });
 
-    assert!(iter.next().is_none());
     assert!(it.next().is_none());
 }

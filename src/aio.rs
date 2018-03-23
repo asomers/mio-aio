@@ -1,7 +1,10 @@
+// vim: tw=80
 use nix::libc::{c_int, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
 use nix;
+use nix::Error;
+use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
 use std::borrow::{Borrow, BorrowMut};
@@ -209,9 +212,81 @@ pub struct LioCb {
     sev: Cell<SigevNotify>
 }
 
-impl LioCb {
-    pub fn submit(&mut self) -> nix::Result<()> {
-        self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev.get())
+impl<'a> LioCb {
+    /// Translate the operating system's somewhat unhelpful error from
+    /// `lio_listio` into something more useful.
+    fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
+        match e {
+            Err(nix::Error::Sys(nix::errno::Errno::EAGAIN)) |
+            Err(nix::Error::Sys(nix::errno::Errno::EIO)) |
+            Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => {
+                // Unfortunately, FreeBSD uses EIO to indicate almost any
+                // problem with lio_listio.  We must examine every aiocb to
+                // determine which error to return
+                let mut n_error = 0;
+                let mut n_einprogress = 0;
+                let mut n_eagain = 0;
+                let mut n_ok = 0;
+                for i in 0..self.inner.aiocbs.len() {
+                    match self.inner.error(i) {
+                        Ok(()) => {
+                            n_ok += 1;
+                        },
+                        Err(Error::Sys(Errno::EINPROGRESS)) => {
+                            n_einprogress += 1;
+                        },
+                        Err(Error::Sys(Errno::EAGAIN)) => {
+                            n_eagain += 1;
+                        },
+                        Err(_) => {
+                            n_error += 1;
+                        }
+                    }
+                }
+                if n_error > 0 {
+                    Err(LioError::EIO)
+                } else if n_eagain > 0 && n_eagain < self.inner.aiocbs.len() {
+                    Err(LioError::EINCOMPLETE)
+                } else if n_eagain == self.inner.aiocbs.len() {
+                    Err(LioError::EAGAIN)
+                } else {
+                    panic!("lio_listio returned EIO for unknown reasons.  n_error={}, n_einprogress={}, n_eagain={}, and n_ok={}",
+                        n_error, n_einprogress, n_eagain, n_ok);
+                }
+            },
+            Ok(()) => Ok(()),
+            _ => panic!("lio_listio returned unhandled error {:?}", e)
+        }
+    }
+
+    /// Submit an `LioCb` to the `aio(4)` subsystem.
+    ///
+    /// If the return value is [`LioError::EAGAIN`], then no operations were
+    /// enqueued due to system resource limitations.  The application should
+    /// free up resources and try again.  If the return value is
+    /// [`LioError::EINCOMPLETE`], then _some_ operations were enqueued, but
+    /// others were not, due to system resource limitations.  The application
+    /// should wait for notification that the enqueued operations are complete,
+    /// then resubmit the others with [`resubmit`](#method.resubmit).  If the
+    /// return value is [`LioError::EIO`], then some operations have failed to
+    /// enqueue, and cannot be resubmitted.  The application should wait for
+    /// notification that the enqueued operations are complete, then examine the
+    /// result of each operation to determine the problem.
+    pub fn submit(&mut self) -> Result<(), LioError> {
+        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev.get());
+        self.fix_submit_error(e)
+    }
+
+    /// Resubmit an `LioCb` if it is incomplete.
+    ///
+    /// If [`submit`](#method.submit) returns `LioError::EINCOMPLETE`, then some
+    /// operations may not have been submitted.  This method will collect status
+    /// for any completed operations, then resubmit the others.
+    ///
+    /// [`lio_listio`](http://pubs.opengroup.org/onlinepubs/9699919799/functions/lio_listio.html)
+    pub fn resubmit(&mut self) -> Result<(), LioError> {
+        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, self.sev.get());
+        self.fix_submit_error(e)
     }
 
     pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: off_t,
@@ -234,29 +309,25 @@ impl LioCb {
         self.inner.aiocbs.push(aiocb);
     }
 
-    /// Consume the `LioCb` and return its inners `AioCb`s
+    /// Consume an `LioCb` and collect its operations' results.
     ///
-    /// It is an error to call this method while the `LioCb` is still in
-    /// progress.
-    pub fn into_results(mut self) -> Box<Iterator<Item = LioResult>> {
-        // We can't simply use self.inner.aiocbs.iter_mut(), because iter_mut()
-        // will move the elements, and aio_return relies on them having a stable
-        // location.  So we must build a collection of the aio_return values,
-        // then zip that with the BufRefs
-        let results : Vec<nix::Result<isize>> = self.inner.aiocbs.iter_mut()
-            .map(|ref mut aiocb| {
-                aiocb.aio_return()
-            }).collect();
-        let consuming_iter = self.inner.aiocbs.into_iter().map(|mut aiocb| {
-            nix_buffer_to_buf_ref(aiocb.buffer())
-        });
+    /// An iterator over all operations' results will be supplied to the
+    /// callback function.
+    // We can't simply return an iterator using self.inner.aiocbs.into_iter(),
+    // because into_iter() moves elements, and aiocbs must reside at stable
+    // memory locations.  This arrangement, though odd, avoids any large memory
+    // allocations and still allows the caller to use an iterator adapter with
+    // the results.
+    pub fn into_results<F, R>(self, callback: F) -> R
+        where F: FnOnce(Box<Iterator<Item=LioResult> + 'a>) -> R {
 
-        Box::new(results.into_iter().zip(consuming_iter).map(|(r, b)| {
-            LioResult {
-                result: r,
-                buf_ref: b,
-            }
-        }))
+        let mut inner = self.inner;
+        let iter = (0..inner.aiocbs.len()).map(move |i| {
+            let result = inner.aio_return(i);
+            let buf_ref = nix_buffer_to_buf_ref(inner.aiocbs[i].buffer());
+            LioResult{result, buf_ref, }
+        });
+        callback(Box::new(iter))
     }
 
     pub fn with_capacity(capacity: usize) -> LioCb {
@@ -294,4 +365,17 @@ impl Evented for LioCb {
         self.sev.set(sigev);
         Ok(())
     }
+}
+
+/// Error types that can be returned by
+/// [`LioCb::submit`](struct.LioCb.html#method.submit)
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LioError {
+    /// No operations were enqueued.  No notification will be forthcoming.
+    EAGAIN,
+    /// Some operations were enqueued, but not all.  Notification will be
+    /// delievered when the enqueued operations are all complete.
+    EINCOMPLETE,
+    /// Some operations failed
+    EIO
 }
