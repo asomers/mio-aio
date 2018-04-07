@@ -13,7 +13,7 @@ keywords = ["io", "async", "non-blocking", "aio"]
 
 [dependencies]
 mio = "0.6.13"
-nix = { git = "https://github.com/asomers/nix", rev = "fef70ad" }
+nix = { git = "https://github.com/nix-rust/nix", rev = "31e901b" }
 
 [dev-dependencies]
 divbuf = { git = "https://github.com/asomers/divbuf", rev = "70104b4" }
