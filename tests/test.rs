@@ -17,7 +17,7 @@ const UDATA: Token = Token(0xdeadbeef);
 
 #[test]
 pub fn test_aio_cancel() {
-    const WBUF: &'static [u8] = b"abcdef";
+    const WBUF: &[u8] = b"abcdef";
     let f = tempfile().unwrap();
 
     let poll = Poll::new().unwrap();
@@ -47,7 +47,7 @@ pub fn test_aio_cancel() {
 
 #[test]
 pub fn test_aio_fsync() {
-    const INITIAL: &'static [u8] = b"abcdef123456";
+    const INITIAL: &[u8] = b"abcdef123456";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
     let poll = Poll::new().unwrap();
@@ -70,9 +70,9 @@ pub fn test_aio_fsync() {
 
 #[test]
 pub fn test_aio_read() {
-    const INITIAL: &'static [u8] = b"abcdef123456";
+    const INITIAL: &[u8] = b"abcdef123456";
     let mut rbuf = vec![0; 4];
-    const EXPECT: &'static [u8] = b"cdef";
+    const EXPECT: &[u8] = b"cdef";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
 
@@ -103,10 +103,10 @@ pub fn test_aio_read() {
 
 #[test]
 pub fn test_aio_read_divbuf() {
-    const INITIAL: &'static [u8] = b"abcdef";
+    const INITIAL: &[u8] = b"abcdef";
     let dbs = DivBufShared::from(vec![0u8; 4]);
     let rbuf = Box::new(dbs.try_mut().unwrap());
-    const EXPECT: &'static [u8] = b"cdef";
+    const EXPECT: &[u8] = b"cdef";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
 
@@ -204,7 +204,7 @@ pub fn test_aio_write_slice() {
 
 #[test]
 pub fn test_aio_write_static() {
-    const WBUF: &'static [u8] = b"abcdef";
+    const WBUF: &[u8] = b"abcdef";
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
@@ -236,8 +236,8 @@ pub fn test_aio_write_static() {
 
 #[test]
 pub fn test_lio_oneread() {
-    const INITIAL: &'static [u8] = b"abcdef123456";
-    const EXPECT: &'static [u8] = b"cdef";
+    const INITIAL: &[u8] = b"abcdef123456";
+    const EXPECT: &[u8] = b"cdef";
     let mut f = tempfile().unwrap();
     let dbs = DivBufShared::from(vec![0; 4]);
     let buf = Box::new(dbs.try_mut().unwrap());
@@ -309,7 +309,7 @@ pub fn test_lio_onewrite() {
 // Write from a constant buffer
 #[test]
 pub fn test_lio_onewrite_from_slice() {
-    const WBUF: &'static [u8] = b"abcdef";
+    const WBUF: &[u8] = b"abcdef";
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
@@ -344,9 +344,9 @@ pub fn test_lio_onewrite_from_slice() {
 
 #[test]
 pub fn test_lio_tworeads() {
-    const INITIAL: &'static [u8] = b"abcdef123456";
-    const EXPECT0: &'static [u8] = b"cdef";
-    const EXPECT1: &'static [u8] = b"23456";
+    const INITIAL: &[u8] = b"abcdef123456";
+    const EXPECT0: &[u8] = b"cdef";
+    const EXPECT1: &[u8] = b"23456";
     let mut f = tempfile().unwrap();
     let dbs0 = DivBufShared::from(vec![0; 4]);
     let rbuf0 = Box::new(dbs0.try_mut().unwrap());
@@ -388,9 +388,9 @@ pub fn test_lio_tworeads() {
 
 #[test]
 pub fn test_lio_read_and_write() {
-    const INITIAL0: &'static [u8] = b"abcdef123456";
-    const WBUF1: &'static [u8] = b"ABCDEFGHIJKL";
-    const EXPECT0: &'static [u8] = b"cdef";
+    const INITIAL0: &[u8] = b"abcdef123456";
+    const WBUF1: &[u8] = b"ABCDEFGHIJKL";
+    const EXPECT0: &[u8] = b"cdef";
     let mut f0 = tempfile().unwrap();
     let mut f1 = tempfile().unwrap();
     let dbs0 = DivBufShared::from(vec![0; 4]);
@@ -443,15 +443,15 @@ pub fn test_lio_read_and_write() {
 // Op 5: read into BoxedMutSlice
 #[test]
 pub fn test_lio_buf_ref() {
-    const INITIAL: &'static [u8] = b"abcdefghijklmnopqrstuvwxyz";
-    const WBUF1: &'static [u8] = b"AB";
+    const INITIAL: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
+    const WBUF1: &[u8] = b"AB";
     let mut rbuf1 = vec![0u8; 2];
     let dbs4 = DivBufShared::from(&b"QXYZ"[..]);
     let db4 = Box::new(dbs4.try().unwrap());
     let mut rbuf4 = vec![0u8; 4];
     let dbs5 = DivBufShared::from(vec![0; 8]);
     let dbm5 = Box::new(dbs5.try_mut().unwrap());
-    const EXPECT5: &'static [u8] = b"qrstuvwx";
+    const EXPECT5: &[u8] = b"qrstuvwx";
     let mut f = tempfile().unwrap();
     f.write(INITIAL).unwrap();
 
