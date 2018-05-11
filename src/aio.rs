@@ -96,20 +96,20 @@ impl<'a> AioCb<'a> {
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
-    pub fn from_boxed_slice(fd: RawFd, offs: off_t, buf: Box<Borrow<[u8]>>,
+    pub fn from_boxed_slice(fd: RawFd, offs: u64, buf: Box<Borrow<[u8]>>,
                             prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
-        let aiocb = aio::AioCb::from_boxed_slice(fd, offs, buf, prio,
+        let aiocb = aio::AioCb::from_boxed_slice(fd, offs as off_t, buf, prio,
             SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
     /// slice
-    pub fn from_boxed_mut_slice(fd: RawFd, offs: off_t,
+    pub fn from_boxed_mut_slice(fd: RawFd, offs: u64,
                                 buf: Box<BorrowMut<[u8]>>, prio: c_int,
                                 opcode: LioOpcode) -> AioCb<'a> {
-        let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs, buf, prio,
-            SigevNotify::SigevNone, opcode);
+        let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs as off_t, buf,
+            prio, SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
 
@@ -117,9 +117,9 @@ impl<'a> AioCb<'a> {
     ///
     /// Not as useful as it sounds, because in typical mio use cases, the
     /// compiler can't guarantee that the slice's lifetime is respected.
-    pub fn from_mut_slice(fd: RawFd, offs: off_t, buf: &'a mut [u8],
+    pub fn from_mut_slice(fd: RawFd, offs: u64, buf: &'a mut [u8],
                       prio: c_int, opcode: LioOpcode) -> AioCb {
-        let aiocb = aio::AioCb::from_mut_slice(fd, offs, buf, prio,
+        let aiocb = aio::AioCb::from_mut_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
@@ -127,9 +127,9 @@ impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::from_slice
     ///
     /// Mostly useful for writing constant slices
-    pub fn from_slice(fd: RawFd, offs: off_t, buf: &'a [u8],
+    pub fn from_slice(fd: RawFd, offs: u64, buf: &'a [u8],
                       prio: c_int, opcode: LioOpcode) -> AioCb {
-        let aiocb = aio::AioCb::from_slice(fd, offs, buf, prio,
+        let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
         AioCb { inner: RefCell::new(Box::new(aiocb)) }
     }
@@ -289,23 +289,24 @@ impl<'a> LioCb {
         self.fix_submit_error(e)
     }
 
-    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: off_t,
+    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: u64,
         buf: Box<Borrow<[u8]>>, prio: i32, opcode: LioOpcode) {
-        self.inner.aiocbs.push(aio::AioCb::from_boxed_slice(fd, offset, buf,
-            prio as c_int, SigevNotify::SigevNone, opcode))
+        self.inner.aiocbs.push(aio::AioCb::from_boxed_slice(fd, offset as off_t,
+            buf, prio as c_int, SigevNotify::SigevNone, opcode))
 
     }
 
-    pub fn emplace_boxed_mut_slice(&mut self, fd: RawFd, offset: off_t,
+    pub fn emplace_boxed_mut_slice(&mut self, fd: RawFd, offset: u64,
         buf: Box<BorrowMut<[u8]>>, prio: i32, opcode: LioOpcode) {
-        self.inner.aiocbs.push(aio::AioCb::from_boxed_mut_slice(fd, offset, buf,
-            prio as c_int, SigevNotify::SigevNone, opcode))
+        self.inner.aiocbs.push(aio::AioCb::from_boxed_mut_slice(fd,
+            offset as off_t, buf, prio as c_int, SigevNotify::SigevNone,
+            opcode))
     }
 
-    pub fn emplace_slice(&mut self, fd: RawFd, offset: off_t,
+    pub fn emplace_slice(&mut self, fd: RawFd, offset: u64,
                          buf: &'static [u8], prio: i32, opcode: LioOpcode) {
-        let aiocb = aio::AioCb::from_slice(fd, offset, buf, prio as c_int,
-                                           SigevNotify::SigevNone, opcode);
+        let aiocb = aio::AioCb::from_slice(fd, offset as off_t, buf,
+            prio as c_int, SigevNotify::SigevNone, opcode);
         self.inner.aiocbs.push(aiocb);
     }
 
