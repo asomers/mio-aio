@@ -18,4 +18,13 @@ nix = { git = "https://github.com/nix-rust/nix", rev = "31e901b" }
 [dev-dependencies]
 divbuf = { git = "https://github.com/asomers/divbuf", rev = "70104b4" }
 log = "0.3.1"
+sysctl = "0.1"
 tempfile = "2"
+
+[[test]]
+name = "functional"
+path = "tests/test.rs"
+
+[[test]]
+name = "lio_listio_incomplete"
+path = "tests/lio_listio_incomplete.rs"
