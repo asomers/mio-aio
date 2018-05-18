@@ -74,6 +74,7 @@ pub struct LioResult {
     pub result: nix::Result<isize>
 }
 
+// LCOV_EXCL_START
 #[derive(Debug)]
 pub struct AioCb<'a> {
     // Must use a RefCell because mio::Evented's methods only take immutable
@@ -83,6 +84,7 @@ pub struct AioCb<'a> {
     // kernel.
     inner: RefCell<Box<aio::AioCb<'a>>>,
 }
+// LCOV_EXCL_STOP
 
 /// Wrapper around nix::sys::aio::AioCb.
 ///
@@ -145,34 +147,34 @@ impl<'a> AioCb<'a> {
     /// Wrapper for nix::sys::aio::aio_return
     pub fn aio_return(&self) -> nix::Result<isize> {
         self.inner.borrow_mut().aio_return()
-    }
+    }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::cancel
     pub fn cancel(&self) -> nix::Result<aio::AioCancelStat> {
         self.inner.borrow_mut().cancel()
-    }
+    }   // LCOV_EXCL_LINE
 
     /// Wrapper for `nix::sys::aio::AioCb::error`
     ///
     /// Not usually needed, since `mio_aio` always uses kqueue for notification.
     pub fn error(&self) -> nix::Result<()> {
         self.inner.borrow_mut().error()
-    }
+    }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::fsync
     pub fn fsync(&self, mode: AioFsyncMode) -> nix::Result<()> {
         self.inner.borrow_mut().fsync(mode)
-    }
+    }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::read
     pub fn read(&self) -> nix::Result<()> {
         self.inner.borrow_mut().read()
-    }
+    }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::write
     pub fn write(&self) -> nix::Result<()> {
         self.inner.borrow_mut().write()
-    }
+    }   // LCOV_EXCL_LINE
 }
 
 impl<'a> Evented for AioCb<'a> {
@@ -205,6 +207,7 @@ impl<'a> Evented for AioCb<'a> {
 }
 
 
+// LCOV_EXCL_START
 #[derive(Debug)]
 pub struct LioCb {
     // Unlike AioCb, registering this structure does not modify the AioCb's
@@ -213,6 +216,7 @@ pub struct LioCb {
     // A plain Cell suffices, because we can Copy SigevNotify's.
     sev: Cell<SigevNotify>
 }
+// LCOV_EXCL_STOP
 
 impl<'a> LioCb {
     /// Translate the operating system's somewhat unhelpful error from
@@ -337,7 +341,7 @@ impl<'a> LioCb {
         LioCb {
             inner: aio::LioCb::with_capacity(capacity),
             sev: Cell::new(SigevNotify::SigevNone)
-        }
+        }   // LCOV_EXCL_LINE
     }
 }
 
