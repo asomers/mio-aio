@@ -153,6 +153,8 @@ impl<'a> AioCb<'a> {
     }
 
     /// Wrapper for `nix::sys::aio::AioCb::error`
+    ///
+    /// Not usually needed, since `mio_aio` always uses kqueue for notification.
     pub fn error(&self) -> nix::Result<()> {
         self.inner.borrow_mut().error()
     }

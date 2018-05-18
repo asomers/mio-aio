@@ -64,6 +64,7 @@ pub fn test_aio_fsync() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
+    assert!(aiocb.error().is_ok());
     aiocb.aio_return().unwrap();
     assert!(it.next().is_none());
 }
@@ -95,6 +96,7 @@ pub fn test_aio_read() {
         assert_eq!(ev.token(), UDATA);
         assert!(UnixReady::from(ev.readiness()).is_aio());
 
+        assert!(aiocb.error().is_ok());
         assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
         assert!(it.next().is_none());
     }
@@ -128,9 +130,9 @@ pub fn test_aio_read_divbuf() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
+    assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
     let mut buf_ref = aiocb.buf_ref();
-    //assert_eq!(&buf_ref.boxed_mut_slice().unwrap(), EXPECT);
     assert_eq!(buf_ref.boxed_mut_slice().unwrap().borrow(), EXPECT);
     assert!(it.next().is_none());
 }
@@ -160,6 +162,7 @@ pub fn test_aio_write_divbuf() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
+    assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
@@ -194,6 +197,7 @@ pub fn test_aio_write_slice() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
+    assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
@@ -226,6 +230,7 @@ pub fn test_aio_write_static() {
     assert_eq!(ev.token(), UDATA);
     assert!(UnixReady::from(ev.readiness()).is_aio());
 
+    assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), WBUF.len() as isize);
     f.seek(SeekFrom::Start(0)).unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
