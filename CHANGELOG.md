@@ -1,4 +1,4 @@
-## [Unreleased] - ReleaseDate
+## [0.3.1] - 2018-07-01
 ### Fixed
 - Fixed Cargo's documentation link
 
