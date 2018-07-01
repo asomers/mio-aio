@@ -1,4 +1,4 @@
-## [Unreleased] - ReleaseDate
+## [0.3.0] - 2018-07-01
 ### Added
 - Support for submitting multiple operations at once with `lio_listio`.
 
