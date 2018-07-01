@@ -1,7 +1,6 @@
 extern crate divbuf;
 extern crate mio;
 extern crate mio_aio;
-extern crate nix;
 extern crate tempfile;
 
 use divbuf::DivBufShared;
