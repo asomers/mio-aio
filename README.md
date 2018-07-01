@@ -9,8 +9,8 @@ loop.
 ```toml
 # Cargo.toml
 [dependencies]
-mio-aio = "0.1"
-mio = "0.6.9"
+mio-aio = "0.3"
+mio = "0.6.13"
 ```
 
 ## Usage
