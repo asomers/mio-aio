@@ -6,3 +6,4 @@ extern crate nix;
 mod aio;
 
 pub use aio::{AioCb, AioFsyncMode, BufRef, LioCb, LioOpcode, LioError};
+pub use nix::errno::Errno;

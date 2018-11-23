@@ -3,7 +3,6 @@ use nix::libc::{c_int, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
 use nix;
-use nix::Error;
 use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
@@ -233,24 +232,35 @@ impl<'a> LioCb {
                 let mut n_einprogress = 0;
                 let mut n_eagain = 0;
                 let mut n_ok = 0;
-                for i in 0..self.inner.aiocbs.len() {
-                    match self.inner.error(i) {
+                let errors = (0..self.inner.aiocbs.len())
+                .map(|i| {
+                    self.inner.error(i).map_err(|e| e.as_errno().unwrap())
+                }).collect::<Vec<_>>();
+                for (i, e) in errors.iter().enumerate() {
+                    match e {
                         Ok(()) => {
                             n_ok += 1;
                         },
-                        Err(Error::Sys(Errno::EINPROGRESS)) => {
+                        Err(Errno::EINPROGRESS) => {
                             n_einprogress += 1;
                         },
-                        Err(Error::Sys(Errno::EAGAIN)) => {
+                        Err(Errno::EAGAIN) => {
                             n_eagain += 1;
                         },
                         Err(_) => {
+                            // Depending on whether the operation was actually
+                            // submitted or not, the kernel  may or may not
+                            // require us to call aio_return. But Nix requires
+                            // that we do, so it doesn't look like a resource
+                            // leak.
+                            let _ = self.inner.aio_return(i);
                             n_error += 1;
                         }
                     }
                 }
                 if n_error > 0 {
-                    Err(LioError::EIO)
+                    // Collect final status for every operation
+                    Err(LioError::EIO(errors))
                 } else if n_eagain > 0 && n_eagain < self.inner.aiocbs.len() {
                     Err(LioError::EINCOMPLETE)
                 } else if n_eagain == self.inner.aiocbs.len() {
@@ -376,13 +386,24 @@ impl Evented for LioCb {
 
 /// Error types that can be returned by
 /// [`LioCb::submit`](struct.LioCb.html#method.submit)
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum LioError {
     /// No operations were enqueued.  No notification will be forthcoming.
     EAGAIN,
     /// Some operations were enqueued, but not all.  Notification will be
     /// delievered when the enqueued operations are all complete.
     EINCOMPLETE,
-    /// Some operations failed
-    EIO
+    /// Some operations failed.  The value is a vector of the status of each
+    /// operation.
+    EIO(Vec<Result<(), Errno>>)
+}
+
+impl LioError {
+    pub fn into_eio(self) -> Result<Vec<Result<(), Errno>>, Self> {
+        if let LioError::EIO(eio) = self {
+            Ok(eio)
+        } else {
+            Err(self)
+        }
+    }
 }

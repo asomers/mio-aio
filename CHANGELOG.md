@@ -1,3 +1,8 @@
+## [Unreleased] - ReleaseDate
+### Changed
+-  If an `lio_listio` operation fails asynchronously, the future will now
+   include final error status for all failed operations.
+
 ## [0.3.1] - 2018-07-01
 ### Fixed
 - Fixed Cargo's documentation link
