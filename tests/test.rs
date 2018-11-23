@@ -238,6 +238,25 @@ pub fn test_aio_write_static() {
     assert!(it.next().is_none());
 }
 
+// lio_listio returns EIO because one of its children failed
+#[test]
+pub fn test_lio_eio() {
+    let dbs = DivBufShared::from(&b"abcdef"[..]);
+    let wbuf0 = Box::new(dbs.try().unwrap());
+    let poll = Poll::new().unwrap();
+
+    let mut liocb = mio_aio::LioCb::with_capacity(1);
+    let fd = -1;    // Illegal file descriptor
+    liocb.emplace_boxed_slice(fd, 0, wbuf0, 0,
+                        mio_aio::LioOpcode::LIO_WRITE);
+    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+        .expect("registration failed");
+
+    let r = liocb.submit();
+    let expected = Err(mio_aio::Errno::EBADF);
+    assert_eq!(r.unwrap_err().into_eio().unwrap()[0], expected);
+}
+
 #[test]
 pub fn test_lio_oneread() {
     const INITIAL: &[u8] = b"abcdef123456";
