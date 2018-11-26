@@ -54,6 +54,15 @@ impl BufRef {
             _ => false,
         }
     }
+
+    /// Length of the buffer, if any
+    pub fn len(&self) -> Option<usize> {
+        match self {
+            &BufRef::BoxedSlice(ref x) => Some(x.as_ref().borrow().len()),
+            &BufRef::BoxedMutSlice(ref x) => Some(x.as_ref().borrow().len()),
+            &BufRef::None => None
+        }
+    }
 }
 
 
