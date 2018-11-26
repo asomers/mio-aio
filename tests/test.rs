@@ -507,6 +507,7 @@ pub fn test_lio_buf_ref() {
         assert_eq!(rbuf1, WBUF1);
         assert_eq!(lr0.result.unwrap(), WBUF1.len() as isize);
         assert!(lr0.buf_ref.is_none());
+        assert_eq!(lr0.buf_ref.len(), None);
 
         let lr1 = iter.next().unwrap();
         assert_eq!(lr1.result.unwrap(), dbs4.len() as isize);
@@ -515,10 +516,12 @@ pub fn test_lio_buf_ref() {
         assert_eq!(len, dbs4.len());
         assert_eq!(rbuf4[..], dbs4.try().unwrap()[..]);
         assert_eq!(lr1.buf_ref.boxed_slice().unwrap().borrow(), &rbuf4[..]);
+        assert_eq!(lr1.buf_ref.len(), Some(4));
 
         let mut lr2 = iter.next().unwrap();
         assert_eq!(lr2.result.unwrap(), EXPECT5.len() as isize);
         assert_eq!(lr2.buf_ref.boxed_mut_slice().unwrap().borrow(), &EXPECT5[..]);
+        assert_eq!(lr2.buf_ref.len(), Some(8));
 
         assert!(iter.next().is_none());
     });
