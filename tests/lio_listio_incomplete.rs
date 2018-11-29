@@ -16,7 +16,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use tempfile::tempfile;
 
 fn mk_liocb(poll: &Poll, token: Token, f: RawFd, num_listios: usize,
-            ops_per_listio: u64, i: u64, wbuf: DivBuf) -> mio_aio::LioCb
+            ops_per_listio: u64, i: u64, wbuf: &DivBuf) -> mio_aio::LioCb
 {
     let mut liocb = mio_aio::LioCb::with_capacity(num_listios);
     for j in 0..ops_per_listio {
@@ -56,7 +56,7 @@ fn lio_listio_incomplete() {
         }
     }
     if num_listios == 0 {
-        panic!("Can't find a configuration for max_aio_queue_per_proc={} AIO_LISTIO_MAX={}");
+        panic!("Can't find a configuration for max_aio_queue_per_proc={} AIO_LISTIO_MAX={}", maqpp, alm);
     }
 
     let f = tempfile().unwrap();
@@ -66,7 +66,7 @@ fn lio_listio_incomplete() {
     let wbuf = dbs.try().unwrap();
     let mut liocbs = (0..num_listios).map(|i| {
         Some(mk_liocb(&poll, Token(i), f.as_raw_fd(), num_listios,
-                      ops_per_listio, i as u64, wbuf.clone()))
+                      ops_per_listio, i as u64, &wbuf))
     }).collect::<Vec<_>>();
 
     let mut submit_results = liocbs

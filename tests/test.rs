@@ -12,7 +12,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
 
-const UDATA: Token = Token(0xdeadbeef);
+const UDATA: Token = Token(0xdead_beef);
 
 #[test]
 pub fn test_aio_cancel() {
@@ -30,7 +30,7 @@ pub fn test_aio_cancel() {
         .expect("registration failed");
 
     aiocb.write().unwrap();
-    aiocb.cancel().ok().expect("aio_cancel failed");
+    aiocb.cancel().expect("aio_cancel failed");
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -48,7 +48,7 @@ pub fn test_aio_cancel() {
 pub fn test_aio_fsync() {
     const INITIAL: &[u8] = b"abcdef123456";
     let mut f = tempfile().unwrap();
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
@@ -74,7 +74,7 @@ pub fn test_aio_read() {
     let mut rbuf = vec![0; 4];
     const EXPECT: &[u8] = b"cdef";
     let mut f = tempfile().unwrap();
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
@@ -85,7 +85,7 @@ pub fn test_aio_read() {
             0,   //priority
             mio_aio::LioOpcode::LIO_NOP);
         poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
-            .ok().expect("registration failed");
+            .expect("registration failed");
 
         aiocb.read().unwrap();
 
@@ -109,7 +109,7 @@ pub fn test_aio_read_divbuf() {
     let rbuf = Box::new(dbs.try_mut().unwrap());
     const EXPECT: &[u8] = b"cdef";
     let mut f = tempfile().unwrap();
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
@@ -119,7 +119,7 @@ pub fn test_aio_read_divbuf() {
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
     poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
-        .ok().expect("registration failed");
+        .expect("registration failed");
 
     aiocb.read().unwrap();
 
@@ -264,7 +264,7 @@ pub fn test_lio_oneread() {
     let mut f = tempfile().unwrap();
     let dbs = DivBufShared::from(vec![0; 4]);
     let buf = Box::new(dbs.try_mut().unwrap());
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
@@ -375,7 +375,7 @@ pub fn test_lio_tworeads() {
     let rbuf0 = Box::new(dbs0.try_mut().unwrap());
     let dbs1 = DivBufShared::from(vec![0; 5]);
     let rbuf1 = Box::new(dbs1.try_mut().unwrap());
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
@@ -419,7 +419,7 @@ pub fn test_lio_read_and_write() {
     let dbs0 = DivBufShared::from(vec![0; 4]);
     let rbuf0 = Box::new(dbs0.try_mut().unwrap());
     let mut rbuf1 = Vec::new();
-    f0.write(INITIAL0).unwrap();
+    f0.write_all(INITIAL0).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
@@ -476,7 +476,7 @@ pub fn test_lio_buf_ref() {
     let dbm5 = Box::new(dbs5.try_mut().unwrap());
     const EXPECT5: &[u8] = b"qrstuvwx";
     let mut f = tempfile().unwrap();
-    f.write(INITIAL).unwrap();
+    f.write_all(INITIAL).unwrap();
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
