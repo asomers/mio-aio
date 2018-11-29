@@ -1,4 +1,4 @@
-## [Unreleased] - ReleaseDate
+## [0.4.0] - 2018-11-29
 ### Added
 - Added `BufRef::len`
 
