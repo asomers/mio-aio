@@ -30,37 +30,39 @@ pub enum BufRef {
     BoxedMutSlice(Box<BorrowMut<[u8]>>)
 }
 
+// is_empty wouldn't make sense because our len returns an Option
+#[cfg_attr(feature = "cargo-clippy", allow(clippy::len_without_is_empty))]
 impl BufRef {
     /// Return the inner `BoxedSlice`, if any
-    pub fn boxed_slice(&self) -> Option<&Box<Borrow<[u8]>>> {
-        match self {
-            &BufRef::BoxedSlice(ref x) => Some(x),
+    pub fn boxed_slice(&self) -> Option<&Borrow<[u8]>> {
+        match *self {
+            BufRef::BoxedSlice(ref x) => Some(x.as_ref()),
             _ => None
         }
     }
 
     /// Return the inner `BoxedMutSlice`, if any
-    pub fn boxed_mut_slice(&mut self) -> Option<&mut Box<BorrowMut<[u8]>>> {
-        match self {
-            &mut BufRef::BoxedMutSlice(ref mut x) => Some(x),
+    pub fn boxed_mut_slice(&mut self) -> Option<&mut BorrowMut<[u8]>> {
+        match *self {
+            BufRef::BoxedMutSlice(ref mut x) => Some(x.as_mut()),
             _ => None
         }
     }
 
     /// Is this `BufRef` `None`?
     pub fn is_none(&self) -> bool {
-        match self {
-            &BufRef::None => true,
+        match *self {
+            BufRef::None => true,
             _ => false,
         }
     }
 
     /// Length of the buffer, if any
     pub fn len(&self) -> Option<usize> {
-        match self {
-            &BufRef::BoxedSlice(ref x) => Some(x.as_ref().borrow().len()),
-            &BufRef::BoxedMutSlice(ref x) => Some(x.as_ref().borrow().len()),
-            &BufRef::None => None
+        match *self {
+            BufRef::BoxedSlice(ref x) => Some(x.as_ref().borrow().len()),
+            BufRef::BoxedMutSlice(ref x) => Some(x.as_ref().borrow().len()),
+            BufRef::None => None
         }
     }
 }
@@ -194,7 +196,7 @@ impl<'a> Evented for AioCb<'a> {
         assert!(UnixReady::from(events).is_aio());
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
-        let sigev = SigevNotify::SigevKevent{kq: kq, udata: udata as isize};
+        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
         self.inner.borrow_mut().set_sigev_notify(sigev);
         Ok(())
     }
@@ -373,7 +375,7 @@ impl Evented for LioCb {
         assert!(UnixReady::from(events).is_lio());
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
-        let sigev = SigevNotify::SigevKevent{kq: kq, udata: udata as isize};
+        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
         self.sev.set(sigev);
         Ok(())
     }

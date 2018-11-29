@@ -5,6 +5,8 @@
 ### Changed
 - If an `lio_listio` operation fails asynchronously, the future will now
   include final error status for all failed operations.
+- `BufRef::boxed_slice` and `BufRef::boxed_mut_slice` now return `&Borrow` and
+  `&BorrowMut` respectively, rather than references to the boxed type.
 
 ## [0.3.1] - 2018-07-01
 ### Fixed
