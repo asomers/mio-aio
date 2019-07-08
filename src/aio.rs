@@ -25,16 +25,16 @@ pub enum BufRef {
     /// reference can't be stored, as when constructed from a slice
     None,
     /// Immutable generic boxed slice
-    BoxedSlice(Box<Borrow<[u8]>>),
+    BoxedSlice(Box<dyn Borrow<[u8]>>),
     /// Mutable generic boxed slice
-    BoxedMutSlice(Box<BorrowMut<[u8]>>)
+    BoxedMutSlice(Box<dyn BorrowMut<[u8]>>)
 }
 
 // is_empty wouldn't make sense because our len returns an Option
 #[cfg_attr(feature = "cargo-clippy", allow(clippy::len_without_is_empty))]
 impl BufRef {
     /// Return the inner `BoxedSlice`, if any
-    pub fn boxed_slice(&self) -> Option<&Borrow<[u8]>> {
+    pub fn boxed_slice(&self) -> Option<&dyn Borrow<[u8]>> {
         match *self {
             BufRef::BoxedSlice(ref x) => Some(x.as_ref()),
             _ => None
@@ -42,7 +42,7 @@ impl BufRef {
     }
 
     /// Return the inner `BoxedMutSlice`, if any
-    pub fn boxed_mut_slice(&mut self) -> Option<&mut BorrowMut<[u8]>> {
+    pub fn boxed_mut_slice(&mut self) -> Option<&mut dyn BorrowMut<[u8]>> {
         match *self {
             BufRef::BoxedMutSlice(ref mut x) => Some(x.as_mut()),
             _ => None
@@ -108,7 +108,7 @@ impl<'a> AioCb<'a> {
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
-    pub fn from_boxed_slice(fd: RawFd, offs: u64, buf: Box<Borrow<[u8]>>,
+    pub fn from_boxed_slice(fd: RawFd, offs: u64, buf: Box<dyn Borrow<[u8]>>,
                             prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_boxed_slice(fd, offs as off_t, buf, prio,
             SigevNotify::SigevNone, opcode);
@@ -118,7 +118,7 @@ impl<'a> AioCb<'a> {
     /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
     /// slice
     pub fn from_boxed_mut_slice(fd: RawFd, offs: u64,
-                                buf: Box<BorrowMut<[u8]>>, prio: c_int,
+                                buf: Box<dyn BorrowMut<[u8]>>, prio: c_int,
                                 opcode: LioOpcode) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs as off_t, buf,
             prio, SigevNotify::SigevNone, opcode);
@@ -317,14 +317,14 @@ impl<'a> LioCb {
     }
 
     pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: u64,
-        buf: Box<Borrow<[u8]>>, prio: i32, opcode: LioOpcode) {
+        buf: Box<dyn Borrow<[u8]>>, prio: i32, opcode: LioOpcode) {
         self.inner.aiocbs.push(aio::AioCb::from_boxed_slice(fd, offset as off_t,
             buf, prio as c_int, SigevNotify::SigevNone, opcode))
 
     }
 
     pub fn emplace_boxed_mut_slice(&mut self, fd: RawFd, offset: u64,
-        buf: Box<BorrowMut<[u8]>>, prio: i32, opcode: LioOpcode) {
+        buf: Box<dyn BorrowMut<[u8]>>, prio: i32, opcode: LioOpcode) {
         self.inner.aiocbs.push(aio::AioCb::from_boxed_mut_slice(fd,
             offset as off_t, buf, prio as c_int, SigevNotify::SigevNone,
             opcode))
@@ -347,7 +347,7 @@ impl<'a> LioCb {
     // allocations and still allows the caller to use an iterator adapter with
     // the results.
     pub fn into_results<F, R>(self, callback: F) -> R
-        where F: FnOnce(Box<Iterator<Item=LioResult> + 'a>) -> R {
+        where F: FnOnce(Box<dyn Iterator<Item=LioResult> + 'a>) -> R {
 
         let mut inner = self.inner;
         let iter = (0..inner.aiocbs.len()).map(move |i| {
