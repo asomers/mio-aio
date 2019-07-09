@@ -20,7 +20,7 @@ nix = "0.12.0"
 divbuf = "0.2.0"
 log = "0.3.4"
 sysctl = "0.1"
-tempfile = "2"
+tempfile = "3.0"
 
 [[test]]
 name = "functional"
