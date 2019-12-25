@@ -7,8 +7,14 @@ task:
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y
+    - $HOME/.cargo/bin/rustup toolchain install nightly
     # In 11.3, aio on ufs is considered unsafe
     - sysctl vfs.aio.enable_unsafe=1
   test_script:
     - . $HOME/.cargo/env
     - cargo test
+  # Test our minimal version spec.
+  minver_test_script:
+    - . $HOME/.cargo/env
+    - cargo +nightly update -Zminimal-versions
+    - cargo +nightly check --all-targets
