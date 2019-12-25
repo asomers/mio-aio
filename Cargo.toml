@@ -14,7 +14,7 @@ documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 
 [dependencies]
 mio = "0.6.13"
-nix = "0.*.1, >= 0.12.1"
+nix = "0.15.0"
 
 [dev-dependencies]
 divbuf = "0.2.0"
