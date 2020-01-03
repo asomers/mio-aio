@@ -228,7 +228,7 @@ pub struct LioCb {
 }
 // LCOV_EXCL_STOP
 
-impl<'a> LioCb {
+impl LioCb {
     /// Translate the operating system's somewhat unhelpful error from
     /// `lio_listio` into something more useful.
     fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
@@ -347,7 +347,7 @@ impl<'a> LioCb {
     // allocations and still allows the caller to use an iterator adapter with
     // the results.
     pub fn into_results<F, R>(self, callback: F) -> R
-        where F: FnOnce(Box<dyn Iterator<Item=LioResult> + 'a>) -> R {
+        where F: FnOnce(Box<dyn Iterator<Item=LioResult>>) -> R {
 
         let mut inner = self.inner;
         let iter = (0..inner.aiocbs.len()).map(move |i| {
