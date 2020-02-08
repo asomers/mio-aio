@@ -229,18 +229,6 @@ impl<'a> LioCb<'a> {
         self.fix_submit_error(e)
     }
 
-    pub fn emplace_mut_slice(&mut self, fd: RawFd, offset: u64,
-                         buf: &'a mut [u8], prio: i32, opcode: LioOpcode) {
-        self.inner.emplace_mut_slice(fd, offset as off_t, buf,
-            prio as c_int, SigevNotify::SigevNone, opcode);
-    }
-
-    pub fn emplace_slice(&mut self, fd: RawFd, offset: u64,
-                         buf: &'a [u8], prio: i32, opcode: LioOpcode) {
-        self.inner.emplace_slice(fd, offset as off_t, buf,
-            prio as c_int, SigevNotify::SigevNone, opcode);
-    }
-
     /// Consume an `LioCb` and collect its operations' results.
     ///
     /// An iterator over all operations' results will be supplied to the
@@ -261,12 +249,6 @@ impl<'a> LioCb<'a> {
         callback(Box::new(iter))
     }
 
-    pub fn with_capacity(capacity: usize) -> LioCb<'a> {
-        LioCb {
-            inner: aio::LioCb::with_capacity(capacity),
-            sev: Cell::new(SigevNotify::SigevNone)
-        }   // LCOV_EXCL_LINE
-    }
 }
 
 impl<'a> Evented for LioCb<'a> {
@@ -295,6 +277,58 @@ impl<'a> Evented for LioCb<'a> {
         let sigev = SigevNotify::SigevNone;
         self.sev.set(sigev);
         Ok(())
+    }
+}
+
+/// Used to construct [`LioCb`].
+///
+/// `LioCb` uses the builder pattern. An `LioCbBuilder` is the only way to
+/// construct an `LioCb`.
+///
+/// [`LioCb`](struct.LioCb.html)
+#[derive(Debug)]
+pub struct LioCbBuilder<'a>(aio::LioCbBuilder<'a>);
+
+impl<'a> LioCbBuilder<'a> {
+    pub fn emplace_mut_slice(self, fd: RawFd, offset: u64,
+                         buf: &'a mut [u8], prio: i32, opcode: LioOpcode)
+        -> Self
+    {
+        LioCbBuilder(
+            self.0.emplace_mut_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn emplace_slice(self, fd: RawFd, offset: u64,
+                         buf: &'a [u8], prio: i32, opcode: LioOpcode) -> Self{
+        LioCbBuilder(
+            self.0.emplace_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn finish(self) -> LioCb<'a> {
+        LioCb {
+            inner: self.0.finish(),
+            sev: Cell::new(SigevNotify::SigevNone)
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> LioCbBuilder<'a> {
+        LioCbBuilder(aio::LioCbBuilder::with_capacity(capacity))
     }
 }
 
