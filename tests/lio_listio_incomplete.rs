@@ -15,15 +15,21 @@ use std::mem;
 use std::os::unix::io::{AsRawFd, RawFd};
 use tempfile::tempfile;
 
-fn mk_liocb(poll: &Poll, token: Token, f: RawFd, num_listios: usize,
-            ops_per_listio: u64, i: u64, wbuf: &DivBuf) -> mio_aio::LioCb
+fn mk_liocb<'a>(poll: &Poll, token: Token, f: RawFd, num_listios: usize,
+            ops_per_listio: u64, i: u64, wbuf: &DivBuf) -> mio_aio::LioCb<'a>
 {
-    let mut liocb = mio_aio::LioCb::with_capacity(num_listios);
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(num_listios);
     for j in 0..ops_per_listio {
         let buf = Box::new(wbuf.clone());
-        liocb.emplace_boxed_slice(f, 4096 * (i * ops_per_listio + j),
-                                  buf, 0, mio_aio::LioOpcode::LIO_WRITE);
+        builder = builder.emplace_boxed_slice(
+            f,
+            4096 * (i * ops_per_listio + j),
+            buf,
+            0,
+            mio_aio::LioOpcode::LIO_WRITE
+        );
     }
+    let liocb = builder.finish();
     poll.register(&liocb, token, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
     liocb

@@ -245,10 +245,11 @@ pub fn test_lio_eio() {
     let wbuf0 = Box::new(dbs.try().unwrap());
     let poll = Poll::new().unwrap();
 
-    let mut liocb = mio_aio::LioCb::with_capacity(1);
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
     let fd = -1;    // Illegal file descriptor
-    liocb.emplace_boxed_slice(fd, 0, wbuf0, 0,
+    builder = builder.emplace_boxed_slice(fd, 0, wbuf0, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -269,9 +270,10 @@ pub fn test_lio_oneread() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(1);
-    liocb.emplace_boxed_mut_slice(f.as_raw_fd(), 2, buf, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
+    builder = builder.emplace_boxed_mut_slice(f.as_raw_fd(), 2, buf, 0,
         mio_aio::LioOpcode::LIO_READ);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -302,9 +304,10 @@ pub fn test_lio_onewrite() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(1);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 0, wbuf0, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
+    builder = builder.emplace_boxed_slice(f.as_raw_fd(), 0, wbuf0, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -339,9 +342,10 @@ pub fn test_lio_onewrite_from_slice() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(1);
-    liocb.emplace_slice(f.as_raw_fd(), 0, WBUF, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
+    builder = builder.emplace_slice(f.as_raw_fd(), 0, WBUF, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -380,11 +384,12 @@ pub fn test_lio_tworeads() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_boxed_mut_slice(f.as_raw_fd(), 2, rbuf0, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
+    builder = builder.emplace_boxed_mut_slice(f.as_raw_fd(), 2, rbuf0, 0,
                             mio_aio::LioOpcode::LIO_READ);
-    liocb.emplace_boxed_mut_slice(f.as_raw_fd(), 7, rbuf1, 0,
+    builder = builder.emplace_boxed_mut_slice(f.as_raw_fd(), 7, rbuf1, 0,
                             mio_aio::LioOpcode::LIO_READ);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -424,11 +429,12 @@ pub fn test_lio_read_and_write() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(2);
-    liocb.emplace_boxed_mut_slice(f0.as_raw_fd(), 2, rbuf0, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
+    builder = builder.emplace_boxed_mut_slice(f0.as_raw_fd(), 2, rbuf0, 0,
                             mio_aio::LioOpcode::LIO_READ);
-    liocb.emplace_slice(f1.as_raw_fd(), 0, WBUF1, 0,
+    builder = builder.emplace_slice(f1.as_raw_fd(), 0, WBUF1, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -481,13 +487,14 @@ pub fn test_lio_buf_ref() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let mut liocb = mio_aio::LioCb::with_capacity(3);
-    liocb.emplace_slice(f.as_raw_fd(), 0, WBUF1, 0,
+    let mut builder = mio_aio::LioCbBuilder::with_capacity(3);
+    builder = builder.emplace_slice(f.as_raw_fd(), 0, WBUF1, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_boxed_slice(f.as_raw_fd(), 6, db4, 0,
+    builder = builder.emplace_boxed_slice(f.as_raw_fd(), 6, db4, 0,
                               mio_aio::LioOpcode::LIO_WRITE);
-    liocb.emplace_boxed_mut_slice(f.as_raw_fd(), 16, dbm5, 0,
+    builder = builder.emplace_boxed_mut_slice(f.as_raw_fd(), 16, dbm5, 0,
                               mio_aio::LioOpcode::LIO_READ);
+    let mut liocb = builder.finish();
     poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
         .expect("registration failed");
 

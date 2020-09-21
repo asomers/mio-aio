@@ -12,6 +12,7 @@ use std::io;
 use std::iter::Iterator;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
+use std::pin::Pin;
 
 pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
@@ -92,7 +93,7 @@ pub struct AioCb<'a> {
     // the aiocb.  Must use Box for the AioCb so its location in memory will be
     // constant.  It is an error to move a libc::aiocb after passing it to the
     // kernel.
-    inner: RefCell<Box<aio::AioCb<'a>>>,
+    inner: RefCell<Pin<Box<aio::AioCb<'a>>>>,
 }
 // LCOV_EXCL_STOP
 
@@ -104,7 +105,7 @@ impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::AioCb::from_fd.
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: RefCell::new(Box::new(aiocb)) }
+        AioCb { inner: RefCell::new(aiocb) }
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
@@ -112,7 +113,7 @@ impl<'a> AioCb<'a> {
                             prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_boxed_slice(fd, offs as off_t, buf, prio,
             SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)) }
+        AioCb { inner: RefCell::new(aiocb) }
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
@@ -122,7 +123,7 @@ impl<'a> AioCb<'a> {
                                 opcode: LioOpcode) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs as off_t, buf,
             prio, SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)) }
+        AioCb { inner: RefCell::new(aiocb) }
     }
 
     /// Wraps nix::sys::aio::from_mut_slice
@@ -133,7 +134,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_mut_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)) }
+        AioCb { inner: RefCell::new(aiocb) }
     }
 
     /// Wraps nix::sys::aio::from_slice
@@ -143,7 +144,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(Box::new(aiocb)) }
+        AioCb { inner: RefCell::new(aiocb) }
     }
 
     /// return an `AioCb`'s inner `BufRef`
@@ -151,7 +152,7 @@ impl<'a> AioCb<'a> {
     /// It is an error to call this method while the `AioCb` is still in
     /// progress.
     pub fn buf_ref(&mut self) -> BufRef {
-        nix_buffer_to_buf_ref(self.inner.borrow_mut().buffer())
+        nix_buffer_to_buf_ref(self.inner.borrow_mut().as_mut().take_buffer_pinned())
     }
 
     /// Wrapper for nix::sys::aio::aio_return
@@ -219,16 +220,16 @@ impl<'a> Evented for AioCb<'a> {
 
 // LCOV_EXCL_START
 #[derive(Debug)]
-pub struct LioCb {
+pub struct LioCb<'a> {
     // Unlike AioCb, registering this structure does not modify the AioCb's
     // themselves, so no RefCell is needed.
-    inner: aio::LioCb<'static>,
+    inner: aio::LioCb<'a>,
     // A plain Cell suffices, because we can Copy SigevNotify's.
     sev: Cell<SigevNotify>
 }
 // LCOV_EXCL_STOP
 
-impl LioCb {
+impl<'a> LioCb<'a> {
     /// Translate the operating system's somewhat unhelpful error from
     /// `lio_listio` into something more useful.
     fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
@@ -316,27 +317,6 @@ impl LioCb {
         self.fix_submit_error(e)
     }
 
-    pub fn emplace_boxed_slice(&mut self, fd: RawFd, offset: u64,
-        buf: Box<dyn Borrow<[u8]>>, prio: i32, opcode: LioOpcode) {
-        self.inner.aiocbs.push(aio::AioCb::from_boxed_slice(fd, offset as off_t,
-            buf, prio as c_int, SigevNotify::SigevNone, opcode))
-
-    }
-
-    pub fn emplace_boxed_mut_slice(&mut self, fd: RawFd, offset: u64,
-        buf: Box<dyn BorrowMut<[u8]>>, prio: i32, opcode: LioOpcode) {
-        self.inner.aiocbs.push(aio::AioCb::from_boxed_mut_slice(fd,
-            offset as off_t, buf, prio as c_int, SigevNotify::SigevNone,
-            opcode))
-    }
-
-    pub fn emplace_slice(&mut self, fd: RawFd, offset: u64,
-                         buf: &'static [u8], prio: i32, opcode: LioOpcode) {
-        let aiocb = aio::AioCb::from_slice(fd, offset as off_t, buf,
-            prio as c_int, SigevNotify::SigevNone, opcode);
-        self.inner.aiocbs.push(aiocb);
-    }
-
     /// Consume an `LioCb` and collect its operations' results.
     ///
     /// An iterator over all operations' results will be supplied to the
@@ -347,26 +327,19 @@ impl LioCb {
     // allocations and still allows the caller to use an iterator adapter with
     // the results.
     pub fn into_results<F, R>(self, callback: F) -> R
-        where F: FnOnce(Box<dyn Iterator<Item=LioResult>>) -> R {
+        where F: FnOnce(Box<dyn Iterator<Item=LioResult> + 'a>) -> R {
 
         let mut inner = self.inner;
         let iter = (0..inner.aiocbs.len()).map(move |i| {
             let result = inner.aio_return(i);
-            let buf_ref = nix_buffer_to_buf_ref(inner.aiocbs[i].buffer());
+            let buf_ref = nix_buffer_to_buf_ref(inner.aiocbs[i].take_buffer());
             LioResult{result, buf_ref, }
         });
         callback(Box::new(iter))
     }
-
-    pub fn with_capacity(capacity: usize) -> LioCb {
-        LioCb {
-            inner: aio::LioCb::with_capacity(capacity),
-            sev: Cell::new(SigevNotify::SigevNone)
-        }   // LCOV_EXCL_LINE
-    }
 }
 
-impl Evented for LioCb {
+impl<'a> Evented for LioCb<'a> {
     fn register(&self,
                 poll: &Poll,
                 token: Token,
@@ -392,6 +365,92 @@ impl Evented for LioCb {
         let sigev = SigevNotify::SigevNone;
         self.sev.set(sigev);
         Ok(())
+    }
+}
+
+/// Used to construct [`LioCb`].
+///
+/// `LioCb` uses the builder pattern. An `LioCbBuilder` is the only way to
+/// construct an `LioCb`.
+///
+/// [`LioCb`](struct.LioCb.html)
+#[derive(Debug)]
+pub struct LioCbBuilder<'a>(aio::LioCbBuilder<'a>);
+
+impl<'a> LioCbBuilder<'a> {
+    pub fn emplace_mut_slice(self, fd: RawFd, offset: u64,
+                         buf: &'a mut [u8], prio: i32, opcode: LioOpcode)
+        -> Self
+    {
+        LioCbBuilder(
+            self.0.emplace_mut_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn emplace_boxed_mut_slice(self, fd: RawFd, offset: u64,
+                                   buf: Box<dyn BorrowMut<[u8]>>, prio: i32,
+                                   opcode: LioOpcode) -> Self
+    {
+        LioCbBuilder(
+            self.0.emplace_boxed_mut_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn emplace_boxed_slice(self, fd: RawFd, offset: u64,
+                         buf: Box<dyn Borrow<[u8]>>, prio: i32,
+                         opcode: LioOpcode) -> Self
+    {
+        LioCbBuilder(
+            self.0.emplace_boxed_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn emplace_slice(self, fd: RawFd, offset: u64,
+                         buf: &'a [u8], prio: i32, opcode: LioOpcode)
+        -> Self
+    {
+        LioCbBuilder(
+            self.0.emplace_slice(
+                fd,
+                offset as off_t,
+                buf,
+                prio as c_int,
+                SigevNotify::SigevNone,
+                opcode
+            )
+        )
+    }
+
+    pub fn finish(self) -> LioCb<'a> {
+        LioCb {
+            inner: self.0.finish(),
+            sev: Cell::new(SigevNotify::SigevNone)
+        }
+    }
+
+    pub fn with_capacity(capacity: usize) -> LioCbBuilder<'a> {
+        LioCbBuilder(aio::LioCbBuilder::with_capacity(capacity))
     }
 }
 
