@@ -7,12 +7,12 @@ use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
 use std::borrow::{Borrow, BorrowMut};
-use std::cell::{Cell, RefCell};
 use std::io;
 use std::iter::Iterator;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::pin::Pin;
+use std::sync::Mutex;
 
 pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
@@ -28,7 +28,7 @@ pub enum BufRef {
     /// Immutable generic boxed slice
     BoxedSlice(Box<dyn Borrow<[u8]>>),
     /// Mutable generic boxed slice
-    BoxedMutSlice(Box<dyn BorrowMut<[u8]>>)
+    BoxedMutSlice(Box<dyn BorrowMut<[u8]> + Send+ Sync>)
 }
 
 // is_empty wouldn't make sense because our len returns an Option
@@ -43,7 +43,9 @@ impl BufRef {
     }
 
     /// Return the inner `BoxedMutSlice`, if any
-    pub fn boxed_mut_slice(&mut self) -> Option<&mut dyn BorrowMut<[u8]>> {
+    pub fn boxed_mut_slice(&mut self) ->
+        Option<&mut (dyn BorrowMut<[u8]> + Send+ Sync)>
+    {
         match *self {
             BufRef::BoxedMutSlice(ref mut x) => Some(x.as_mut()),
             _ => None
@@ -88,12 +90,12 @@ pub struct LioResult {
 // LCOV_EXCL_START
 #[derive(Debug)]
 pub struct AioCb<'a> {
-    // Must use a RefCell because mio::Evented's methods only take immutable
-    // references, and unlike sockets, registering aiocb's requires modifying
-    // the aiocb.  Must use Box for the AioCb so its location in memory will be
+    // TODO: consider removing the Mutex, moving responsibility for locking into
+    // the caller.
+    // Must use Pin for the AioCb so its location in memory will be
     // constant.  It is an error to move a libc::aiocb after passing it to the
     // kernel.
-    inner: RefCell<Pin<Box<aio::AioCb<'a>>>>,
+    inner: Mutex<Pin<Box<aio::AioCb<'a>>>>,
 }
 // LCOV_EXCL_STOP
 
@@ -105,25 +107,31 @@ impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::AioCb::from_fd.
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: Mutex::new(aiocb) }
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
-    pub fn from_boxed_slice(fd: RawFd, offs: u64, buf: Box<dyn Borrow<[u8]>>,
-                            prio: c_int, opcode: LioOpcode) -> AioCb<'a> {
+    pub fn from_boxed_slice(fd: RawFd,
+                            offs: u64,
+                            buf: Box<dyn Borrow<[u8]> + Send+ Sync>,
+                            prio: c_int,
+                            opcode: LioOpcode) -> AioCb<'a> 
+    {
         let aiocb = aio::AioCb::from_boxed_slice(fd, offs as off_t, buf, prio,
             SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: Mutex::new(aiocb) }
     }
 
     /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
     /// slice
     pub fn from_boxed_mut_slice(fd: RawFd, offs: u64,
-                                buf: Box<dyn BorrowMut<[u8]>>, prio: c_int,
-                                opcode: LioOpcode) -> AioCb<'a> {
+                                buf: Box<dyn BorrowMut<[u8]> + Send+ Sync>,
+                                prio: c_int,
+                                opcode: LioOpcode) -> AioCb<'a>
+    {
         let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs as off_t, buf,
             prio, SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: Mutex::new(aiocb) }
     }
 
     /// Wraps nix::sys::aio::from_mut_slice
@@ -134,7 +142,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_mut_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: Mutex::new(aiocb) }
     }
 
     /// Wraps nix::sys::aio::from_slice
@@ -144,7 +152,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: RefCell::new(aiocb) }
+        AioCb { inner: Mutex::new(aiocb) }
     }
 
     /// return an `AioCb`'s inner `BufRef`
@@ -152,39 +160,40 @@ impl<'a> AioCb<'a> {
     /// It is an error to call this method while the `AioCb` is still in
     /// progress.
     pub fn buf_ref(&mut self) -> BufRef {
-        nix_buffer_to_buf_ref(self.inner.borrow_mut().as_mut().take_buffer_pinned())
+        let mut inner_guard =self.inner.lock().unwrap();
+        nix_buffer_to_buf_ref(inner_guard.as_mut().take_buffer_pinned())
     }
 
     /// Wrapper for nix::sys::aio::aio_return
     pub fn aio_return(&self) -> nix::Result<isize> {
-        self.inner.borrow_mut().aio_return()
+        self.inner.lock().unwrap().aio_return()
     }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::cancel
     pub fn cancel(&self) -> nix::Result<aio::AioCancelStat> {
-        self.inner.borrow_mut().cancel()
+        self.inner.lock().unwrap().cancel()
     }   // LCOV_EXCL_LINE
 
     /// Wrapper for `nix::sys::aio::AioCb::error`
     ///
     /// Not usually needed, since `mio_aio` always uses kqueue for notification.
     pub fn error(&self) -> nix::Result<()> {
-        self.inner.borrow_mut().error()
+        self.inner.lock().unwrap().error()
     }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::fsync
     pub fn fsync(&self, mode: AioFsyncMode) -> nix::Result<()> {
-        self.inner.borrow_mut().fsync(mode)
+        self.inner.lock().unwrap().fsync(mode)
     }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::read
     pub fn read(&self) -> nix::Result<()> {
-        self.inner.borrow_mut().read()
+        self.inner.lock().unwrap().read()
     }   // LCOV_EXCL_LINE
 
     /// Wrapper for nix::sys::aio::AioCb::write
     pub fn write(&self) -> nix::Result<()> {
-        self.inner.borrow_mut().write()
+        self.inner.lock().unwrap().write()
     }   // LCOV_EXCL_LINE
 }
 
@@ -198,7 +207,7 @@ impl<'a> Evented for AioCb<'a> {
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.inner.borrow_mut().set_sigev_notify(sigev);
+        self.inner.lock().unwrap().set_sigev_notify(sigev);
         Ok(())
     }
 
@@ -212,7 +221,7 @@ impl<'a> Evented for AioCb<'a> {
 
     fn deregister(&self, _: &Poll) -> io::Result<()> {
         let sigev = SigevNotify::SigevNone;
-        self.inner.borrow_mut().set_sigev_notify(sigev);
+        self.inner.lock().unwrap().set_sigev_notify(sigev);
         Ok(())
     }
 }
@@ -222,10 +231,9 @@ impl<'a> Evented for AioCb<'a> {
 #[derive(Debug)]
 pub struct LioCb<'a> {
     // Unlike AioCb, registering this structure does not modify the AioCb's
-    // themselves, so no RefCell is needed.
+    // themselves, so no Mutex is needed.
     inner: aio::LioCb<'a>,
-    // A plain Cell suffices, because we can Copy SigevNotify's.
-    sev: Cell<SigevNotify>
+    sev: Mutex<SigevNotify>
 }
 // LCOV_EXCL_STOP
 
@@ -301,7 +309,8 @@ impl<'a> LioCb<'a> {
     /// notification that the enqueued operations are complete, then examine the
     /// result of each operation to determine the problem.
     pub fn submit(&mut self) -> Result<(), LioError> {
-        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev.get());
+        let sev =*self.sev.lock().unwrap();
+        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, sev);
         self.fix_submit_error(e)
     }
 
@@ -313,7 +322,8 @@ impl<'a> LioCb<'a> {
     ///
     /// [`lio_listio`](http://pubs.opengroup.org/onlinepubs/9699919799/functions/lio_listio.html)
     pub fn resubmit(&mut self) -> Result<(), LioError> {
-        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, self.sev.get());
+        let sev =*self.sev.lock().unwrap();
+        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, sev);
         self.fix_submit_error(e)
     }
 
@@ -349,7 +359,7 @@ impl<'a> Evented for LioCb<'a> {
         let udata = usize::from(token);
         let kq = poll.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.sev.set(sigev);
+        *self.sev.lock().unwrap() = sigev;
         Ok(())
     }
 
@@ -363,7 +373,7 @@ impl<'a> Evented for LioCb<'a> {
 
     fn deregister(&self, _: &Poll) -> io::Result<()> {
         let sigev = SigevNotify::SigevNone;
-        self.sev.set(sigev);
+        *self.sev.lock().unwrap() = sigev;
         Ok(())
     }
 }
@@ -394,8 +404,11 @@ impl<'a> LioCbBuilder<'a> {
         )
     }
 
-    pub fn emplace_boxed_mut_slice(self, fd: RawFd, offset: u64,
-                                   buf: Box<dyn BorrowMut<[u8]>>, prio: i32,
+    pub fn emplace_boxed_mut_slice(self,
+                                   fd: RawFd,
+                                   offset: u64,
+                                   buf: Box<dyn BorrowMut<[u8]> + Send+ Sync>,
+                                   prio: i32,
                                    opcode: LioOpcode) -> Self
     {
         LioCbBuilder(
@@ -410,9 +423,12 @@ impl<'a> LioCbBuilder<'a> {
         )
     }
 
-    pub fn emplace_boxed_slice(self, fd: RawFd, offset: u64,
-                         buf: Box<dyn Borrow<[u8]>>, prio: i32,
-                         opcode: LioOpcode) -> Self
+    pub fn emplace_boxed_slice(self,
+                               fd: RawFd,
+                               offset: u64,
+                               buf: Box<dyn Borrow<[u8]> + Send+ Sync>,
+                               prio: i32,
+                               opcode: LioOpcode) -> Self
     {
         LioCbBuilder(
             self.0.emplace_boxed_slice(
@@ -445,7 +461,7 @@ impl<'a> LioCbBuilder<'a> {
     pub fn finish(self) -> LioCb<'a> {
         LioCb {
             inner: self.0.finish(),
-            sev: Cell::new(SigevNotify::SigevNone)
+            sev: Mutex::new(SigevNotify::SigevNone)
         }
     }
 
