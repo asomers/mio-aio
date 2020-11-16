@@ -26,9 +26,9 @@ pub enum BufRef {
     /// reference can't be stored, as when constructed from a slice
     None,
     /// Immutable generic boxed slice
-    BoxedSlice(Box<dyn Borrow<[u8]>>),
+    BoxedSlice(Box<dyn Borrow<[u8]> + Send + Sync>),
     /// Mutable generic boxed slice
-    BoxedMutSlice(Box<dyn BorrowMut<[u8]> + Send+ Sync>)
+    BoxedMutSlice(Box<dyn BorrowMut<[u8]> + Send + Sync>)
 }
 
 // is_empty wouldn't make sense because our len returns an Option
