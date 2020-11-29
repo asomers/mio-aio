@@ -14,10 +14,9 @@ documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 
 [dependencies]
 mio = "0.6.13"
-nix = { git = "https://github.com/asomers/nix", rev = "5d2354517a643162bdc6608a5a30aba43f592069" }
+nix = { git = "https://github.com/asomers/nix", rev = "7912d9cfb10ea3a8118f00eb5a40790cdea33c8d" }
 
 [dev-dependencies]
-divbuf = "0.2.0"
 log = "0.3.4"
 sysctl = "0.1"
 tempfile = "3.0"

@@ -6,7 +6,6 @@ use nix;
 use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
-use std::borrow::{Borrow, BorrowMut};
 use std::io;
 use std::iter::Iterator;
 use std::os::unix::io::AsRawFd;
@@ -18,72 +17,9 @@ pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
 
 
-/// Stores a reference to the buffer used by the `AioCb`, if any.
-///
-/// After the I/O operation is done, can be retrieved by `buf_ref`
-pub enum BufRef {
-    /// Either the `AioCb` has no buffer, as for an fsync operation, or a
-    /// reference can't be stored, as when constructed from a slice
-    None,
-    /// Immutable generic boxed slice
-    BoxedSlice(Box<dyn Borrow<[u8]> + Send + Sync>),
-    /// Mutable generic boxed slice
-    BoxedMutSlice(Box<dyn BorrowMut<[u8]> + Send + Sync>)
-}
-
-// is_empty wouldn't make sense because our len returns an Option
-#[cfg_attr(feature = "cargo-clippy", allow(clippy::len_without_is_empty))]
-impl BufRef {
-    /// Return the inner `BoxedSlice`, if any
-    pub fn boxed_slice(&self) -> Option<&dyn Borrow<[u8]>> {
-        match *self {
-            BufRef::BoxedSlice(ref x) => Some(x.as_ref()),
-            _ => None
-        }
-    }
-
-    /// Return the inner `BoxedMutSlice`, if any
-    pub fn boxed_mut_slice(&mut self) ->
-        Option<&mut (dyn BorrowMut<[u8]> + Send+ Sync)>
-    {
-        match *self {
-            BufRef::BoxedMutSlice(ref mut x) => Some(x.as_mut()),
-            _ => None
-        }
-    }
-
-    /// Is this `BufRef` `None`?
-    pub fn is_none(&self) -> bool {
-        match *self {
-            BufRef::None => true,
-            _ => false,
-        }
-    }
-
-    /// Length of the buffer, if any
-    pub fn len(&self) -> Option<usize> {
-        match *self {
-            BufRef::BoxedSlice(ref x) => Some(x.as_ref().borrow().len()),
-            BufRef::BoxedMutSlice(ref x) => Some(x.as_ref().borrow().len()),
-            BufRef::None => None
-        }
-    }
-}
-
-
-/// Consume a nix::sys::aio::Buffer and return a mio_aio::BufRef
-fn nix_buffer_to_buf_ref(b: aio::Buffer) -> BufRef {
-    match b {
-        aio::Buffer::BoxedSlice(x) => BufRef::BoxedSlice(x),
-        aio::Buffer::BoxedMutSlice(x) => BufRef::BoxedMutSlice(x),
-        _ => BufRef::None
-    }
-}
-
 /// Represents the result of an individual operation from an `LioCb::submit`
 /// call.
 pub struct LioResult {
-    pub buf_ref: BufRef,
     pub result: nix::Result<isize>
 }
 
@@ -110,30 +46,6 @@ impl<'a> AioCb<'a> {
         AioCb { inner: Mutex::new(aiocb) }
     }
 
-    /// Creates a nix::sys::aio::AioCb from almost any kind of boxed slice
-    pub fn from_boxed_slice(fd: RawFd,
-                            offs: u64,
-                            buf: Box<dyn Borrow<[u8]> + Send+ Sync>,
-                            prio: c_int,
-                            opcode: LioOpcode) -> AioCb<'a> 
-    {
-        let aiocb = aio::AioCb::from_boxed_slice(fd, offs as off_t, buf, prio,
-            SigevNotify::SigevNone, opcode);
-        AioCb { inner: Mutex::new(aiocb) }
-    }
-
-    /// Creates a nix::sys::aio::AioCb from almost any kind of mutable boxed
-    /// slice
-    pub fn from_boxed_mut_slice(fd: RawFd, offs: u64,
-                                buf: Box<dyn BorrowMut<[u8]> + Send+ Sync>,
-                                prio: c_int,
-                                opcode: LioOpcode) -> AioCb<'a>
-    {
-        let aiocb = aio::AioCb::from_boxed_mut_slice(fd, offs as off_t, buf,
-            prio, SigevNotify::SigevNone, opcode);
-        AioCb { inner: Mutex::new(aiocb) }
-    }
-
     /// Wraps nix::sys::aio::from_mut_slice
     ///
     /// Not as useful as it sounds, because in typical mio use cases, the
@@ -153,15 +65,6 @@ impl<'a> AioCb<'a> {
         let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
         AioCb { inner: Mutex::new(aiocb) }
-    }
-
-    /// return an `AioCb`'s inner `BufRef`
-    ///
-    /// It is an error to call this method while the `AioCb` is still in
-    /// progress.
-    pub fn buf_ref(&mut self) -> BufRef {
-        let mut inner_guard =self.inner.lock().unwrap();
-        nix_buffer_to_buf_ref(inner_guard.as_mut().take_buffer_pinned())
     }
 
     /// Wrapper for nix::sys::aio::aio_return
@@ -342,8 +245,7 @@ impl<'a> LioCb<'a> {
         let mut inner = self.inner;
         let iter = (0..inner.aiocbs.len()).map(move |i| {
             let result = inner.aio_return(i);
-            let buf_ref = nix_buffer_to_buf_ref(inner.aiocbs[i].take_buffer());
-            LioResult{result, buf_ref, }
+            LioResult{result }
         });
         callback(Box::new(iter))
     }
@@ -394,44 +296,6 @@ impl<'a> LioCbBuilder<'a> {
     {
         LioCbBuilder(
             self.0.emplace_mut_slice(
-                fd,
-                offset as off_t,
-                buf,
-                prio as c_int,
-                SigevNotify::SigevNone,
-                opcode
-            )
-        )
-    }
-
-    pub fn emplace_boxed_mut_slice(self,
-                                   fd: RawFd,
-                                   offset: u64,
-                                   buf: Box<dyn BorrowMut<[u8]> + Send+ Sync>,
-                                   prio: i32,
-                                   opcode: LioOpcode) -> Self
-    {
-        LioCbBuilder(
-            self.0.emplace_boxed_mut_slice(
-                fd,
-                offset as off_t,
-                buf,
-                prio as c_int,
-                SigevNotify::SigevNone,
-                opcode
-            )
-        )
-    }
-
-    pub fn emplace_boxed_slice(self,
-                               fd: RawFd,
-                               offset: u64,
-                               buf: Box<dyn Borrow<[u8]> + Send+ Sync>,
-                               prio: i32,
-                               opcode: LioOpcode) -> Self
-    {
-        LioCbBuilder(
-            self.0.emplace_boxed_slice(
                 fd,
                 offset as off_t,
                 buf,
