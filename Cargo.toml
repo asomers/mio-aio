@@ -14,7 +14,7 @@ documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 
 [dependencies]
 mio = "0.6.13"
-nix = { git = "https://github.com/asomers/nix", rev = "7912d9cfb10ea3a8118f00eb5a40790cdea33c8d" }
+nix = "0.21.0"
 
 [dev-dependencies]
 log = "0.3.4"

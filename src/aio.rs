@@ -155,7 +155,7 @@ impl<'a> LioCb<'a> {
                 let mut n_einprogress = 0;
                 let mut n_eagain = 0;
                 let mut n_ok = 0;
-                let errors = (0..self.inner.aiocbs.len())
+                let errors = (0..self.inner.len())
                 .map(|i| {
                     self.inner.error(i).map_err(|e| e.as_errno().unwrap())
                 }).collect::<Vec<_>>();
@@ -184,9 +184,9 @@ impl<'a> LioCb<'a> {
                 if n_error > 0 {
                     // Collect final status for every operation
                     Err(LioError::EIO(errors))
-                } else if n_eagain > 0 && n_eagain < self.inner.aiocbs.len() {
+                } else if n_eagain > 0 && n_eagain < self.inner.len() {
                     Err(LioError::EINCOMPLETE)
-                } else if n_eagain == self.inner.aiocbs.len() {
+                } else if n_eagain == self.inner.len() {
                     Err(LioError::EAGAIN)
                 } else {
                     panic!("lio_listio returned EIO for unknown reasons.  n_error={}, n_einprogress={}, n_eagain={}, and n_ok={}",
@@ -243,7 +243,7 @@ impl<'a> LioCb<'a> {
         where F: FnOnce(Box<dyn Iterator<Item=LioResult> + 'a>) -> R {
 
         let mut inner = self.inner;
-        let iter = (0..inner.aiocbs.len()).map(move |i| {
+        let iter = (0..inner.len()).map(move |i| {
             let result = inner.aio_return(i);
             LioResult{result }
         });
