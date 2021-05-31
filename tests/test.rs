@@ -218,7 +218,7 @@ pub fn test_lio_oneread() {
         assert!(iter.next().is_none());
     });
     assert!(it.next().is_none());
-    assert_eq!(&EXPECT[..], &buf[..]);
+    assert_eq!(EXPECT, &buf[..]);
 }
 
 #[test]
