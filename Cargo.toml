@@ -1,5 +1,6 @@
 [package]
 name = "mio-aio"
+edition = "2018"
 version = "0.4.2-pre"
 authors = ["Alan Somers <asomers@gmail.com>"]
 license = "MIT/Apache-2.0"
@@ -17,6 +18,7 @@ mio = "0.6.13"
 nix = "0.21.0"
 
 [dev-dependencies]
+assert-impl = "0.1"
 log = "0.3.4"
 sysctl = "0.1"
 tempfile = "3.0"

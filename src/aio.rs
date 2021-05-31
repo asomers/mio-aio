@@ -2,7 +2,6 @@
 use nix::libc::{c_int, off_t};
 use mio::{Evented, Poll, Token, Ready, PollOpt};
 use mio::unix::UnixReady;
-use nix;
 use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
@@ -26,11 +25,12 @@ pub struct LioResult {
 // LCOV_EXCL_START
 #[derive(Debug)]
 pub struct AioCb<'a> {
-    // TODO: consider removing the Mutex, moving responsibility for locking into
-    // the caller.
     // Must use Pin for the AioCb so its location in memory will be
     // constant.  It is an error to move a libc::aiocb after passing it to the
     // kernel.
+    // Must use a Mutex because mio::Evented::register takes an immutable
+    // receiver, but we need to modify the libc::aiocb.  I think the Mutex will
+    // be unnecessary with mio-0.7.
     inner: Mutex<Pin<Box<aio::AioCb<'a>>>>,
 }
 // LCOV_EXCL_STOP
@@ -67,36 +67,39 @@ impl<'a> AioCb<'a> {
         AioCb { inner: Mutex::new(aiocb) }
     }
 
-    /// Wrapper for nix::sys::aio::aio_return
-    pub fn aio_return(&self) -> nix::Result<isize> {
-        self.inner.lock().unwrap().aio_return()
+    /// Read the final result of the operation
+    pub fn aio_return(&mut self) -> nix::Result<isize> {
+        self.inner.get_mut().unwrap().aio_return()
     }   // LCOV_EXCL_LINE
 
-    /// Wrapper for nix::sys::aio::AioCb::cancel
-    pub fn cancel(&self) -> nix::Result<aio::AioCancelStat> {
-        self.inner.lock().unwrap().cancel()
+    /// Ask the operating system to cancel the operation
+    ///
+    /// Most file systems on most operating systems don't actually support
+    /// cancellation; they'll just return `AIO_NOTCANCELED`.
+    pub fn cancel(&mut self) -> nix::Result<aio::AioCancelStat> {
+        self.inner.get_mut().unwrap().cancel()
     }   // LCOV_EXCL_LINE
 
-    /// Wrapper for `nix::sys::aio::AioCb::error`
+    /// Retrieve the status of an in-progress or complete operation.
     ///
     /// Not usually needed, since `mio_aio` always uses kqueue for notification.
-    pub fn error(&self) -> nix::Result<()> {
-        self.inner.lock().unwrap().error()
+    pub fn error(&mut self) -> nix::Result<()> {
+        self.inner.get_mut().unwrap().error()
     }   // LCOV_EXCL_LINE
 
-    /// Wrapper for nix::sys::aio::AioCb::fsync
-    pub fn fsync(&self, mode: AioFsyncMode) -> nix::Result<()> {
-        self.inner.lock().unwrap().fsync(mode)
+    /// Asynchronously fsync a file.
+    pub fn fsync(&mut self, mode: AioFsyncMode) -> nix::Result<()> {
+        self.inner.get_mut().unwrap().fsync(mode)
     }   // LCOV_EXCL_LINE
 
-    /// Wrapper for nix::sys::aio::AioCb::read
-    pub fn read(&self) -> nix::Result<()> {
-        self.inner.lock().unwrap().read()
+    /// Asynchronously read from a file.
+    pub fn read(&mut self) -> nix::Result<()> {
+        self.inner.get_mut().unwrap().read()
     }   // LCOV_EXCL_LINE
 
-    /// Wrapper for nix::sys::aio::AioCb::write
-    pub fn write(&self) -> nix::Result<()> {
-        self.inner.lock().unwrap().write()
+    /// Asynchronously write to a file.
+    pub fn write(&mut self) -> nix::Result<()> {
+        self.inner.get_mut().unwrap().write()
     }   // LCOV_EXCL_LINE
 }
 
@@ -355,5 +358,25 @@ impl LioError {
         } else {
             Err(self)
         }
+    }
+}
+
+#[cfg(test)]
+mod t {
+    use super::*;
+    use assert_impl::assert_impl;
+
+    // It's important that `AioCb` and `LioCb` be `Sync` and `Send`.  Most Tokio
+    // applications require it.
+    #[test]
+    fn aiocb_is_send_and_sync() {
+        assert_impl!(Send: AioCb);
+        assert_impl!(Sync: AioCb);
+    }
+
+    #[test]
+    fn liocb_is_send_and_sync() {
+        assert_impl!(Send: LioCb);
+        assert_impl!(Sync: LioCb);
     }
 }

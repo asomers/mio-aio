@@ -19,7 +19,7 @@ pub fn test_aio_cancel() {
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         &WBUF,
         0,   //priority
@@ -50,7 +50,7 @@ pub fn test_aio_fsync() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
-    let aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
+    let mut aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
     poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
         .expect("registration failed");
 
@@ -77,7 +77,7 @@ pub fn test_aio_read() {
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     {
-        let aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
+        let mut aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
             2,   //offset
             &mut rbuf,
             0,   //priority
@@ -108,7 +108,7 @@ pub fn test_aio_write() {
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         &wbuf,
         0,   //priority
@@ -141,7 +141,7 @@ pub fn test_aio_write_static() {
 
     let poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         &WBUF,
         0,   //priority
