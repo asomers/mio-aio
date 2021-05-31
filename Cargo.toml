@@ -13,6 +13,11 @@ categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 
+[package.metadata.docs.rs]
+targets = [
+  "x86_64-unknown-freebsd",
+]
+
 [dependencies]
 mio = "0.6.13"
 nix = "0.21.0"
