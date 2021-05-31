@@ -1,23 +1,37 @@
 freebsd_instance:
-  image: freebsd-11-3-stable-amd64-v20190801
+  image: freebsd-11-4-release-amd64
 
 task:
-  name: cargo test
   env:
+    HOME: /tmp  # cargo cache needs it
     # Temporary workaround for https://github.com/rust-lang/rustup/issues/2774
     RUSTUP_IO_THREADS: 1
+  matrix:
+    - name: FreeBSD 11 amd64 nightly
+      env:
+        VERSION: nightly
+    - name: FreeBSD 11 amd64 MSRV
+      env:
+        VERSION: 1.41.0
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y
-    - $HOME/.cargo/bin/rustup toolchain install nightly
-    # In 11.3, aio on ufs is considered unsafe
+    - $HOME/.cargo/bin/rustup toolchain install $VERSION
+    # In 11.4, aio on ufs is considered unsafe
     - sysctl vfs.aio.enable_unsafe=1
+  cargo_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_script: cat Cargo.lock || echo ""
   test_script:
     - . $HOME/.cargo/env
-    - cargo test
+    - cargo +$VERSION test
   # Test our minimal version spec.
   minver_test_script:
     - . $HOME/.cargo/env
-    - cargo +nightly update -Zminimal-versions
-    - cargo +nightly check --all-targets
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION update -Zminimal-versions; else true; fi
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION check --all-targets; else true; fi
+  clippy_script:
+    - . $HOME/.cargo/env
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
