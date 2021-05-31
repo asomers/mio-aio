@@ -3,6 +3,9 @@ freebsd_instance:
 
 task:
   name: cargo test
+  env:
+    # Temporary workaround for https://github.com/rust-lang/rustup/issues/2774
+    RUSTUP_IO_THREADS: 1
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
