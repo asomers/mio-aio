@@ -1,3 +1,13 @@
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- mio-aio's operations no longer own their buffers.  It is less necessary now
+  that async/await is available.  Instead, all mio-aio operations use borrowed
+  buffers.
+
+- Most `AioCb` methods now take a mutable receiver rather than an immutable one.
+
 ## [0.4.1] - 2019-08-07
 ### Fixed
 - Fixed several dependencies's version specifications.
