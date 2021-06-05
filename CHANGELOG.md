@@ -1,3 +1,8 @@
+## [Unreleased] - ReleaseDate
+## Changed
+
+- Updated mio to 0.7.
+
 ## [0.5.0] - 2021-05-31
 
 ### Changed
