@@ -6,6 +6,8 @@
   reexport from Nix.
   (#[21](https://github.com/asomers/mio-aio/pull/21))
 
+- Updated mio to 0.7.
+
 ## [0.5.0] - 2021-05-31
 
 ### Changed

@@ -5,8 +5,7 @@ extern crate nix;
 extern crate sysctl;
 extern crate tempfile;
 
-use mio::{Events, Poll, PollOpt, Token};
-use mio::unix::UnixReady;
+use mio::{Events, Interest, Poll, Token};
 use nix::unistd::{SysconfVar, sysconf};
 use sysctl::CtlValue;
 use std::mem;
@@ -26,8 +25,8 @@ fn mk_liocb<'a>(poll: &Poll, token: Token, f: RawFd, num_listios: usize,
             mio_aio::LioOpcode::LIO_WRITE
         );
     }
-    let liocb = builder.finish();
-    poll.register(&liocb, token, UnixReady::lio().into(), PollOpt::empty())
+    let mut liocb = builder.finish();
+    poll.registry().register(&mut liocb, token, Interest::LIO)
         .expect("registration failed");
     liocb
 }
@@ -63,7 +62,7 @@ fn lio_listio_incomplete() {
     }
 
     let f = tempfile().unwrap();
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     let wbuf = vec![0u8; 4096];
     let mut liocbs = (0..num_listios).map(|i| {
@@ -83,7 +82,7 @@ fn lio_listio_incomplete() {
     while complete < num_listios {
         poll.poll(&mut events, None).expect("poll failed");
         for ev in events.iter() {
-            assert!(UnixReady::from(ev.readiness()).is_lio());
+            assert!(ev.is_lio());
             let res = match submit_results[ev.token().0] {
                 Err(mio_aio::LioError::EINCOMPLETE) => {
                     liocbs[ev.token().0].as_mut().unwrap().resubmit()

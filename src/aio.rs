@@ -1,7 +1,11 @@
 // vim: tw=80
 use nix::libc::{c_int, off_t};
-use mio::{Evented, Poll, Token, Ready, PollOpt};
-use mio::unix::UnixReady;
+use mio::{
+    Interest,
+    Registry,
+    Token,
+    event::Source,
+};
 use nix::errno::Errno;
 use nix::sys::aio;
 use nix::sys::signal::SigevNotify;
@@ -10,7 +14,6 @@ use std::iter::Iterator;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::io::RawFd;
 use std::pin::Pin;
-use std::sync::Mutex;
 
 pub use nix::sys::aio::AioFsyncMode;
 pub use nix::sys::aio::LioOpcode;
@@ -28,22 +31,19 @@ pub struct AioCb<'a> {
     // Must use Pin for the AioCb so its location in memory will be
     // constant.  It is an error to move a libc::aiocb after passing it to the
     // kernel.
-    // Must use a Mutex because mio::Evented::register takes an immutable
-    // receiver, but we need to modify the libc::aiocb.  I think the Mutex will
-    // be unnecessary with mio-0.7.
-    inner: Mutex<Pin<Box<aio::AioCb<'a>>>>,
+    inner: Pin<Box<aio::AioCb<'a>>>,
 }
 // LCOV_EXCL_STOP
 
 /// Wrapper around nix::sys::aio::AioCb.
 ///
-/// Implements mio::Evented.  After creation, use mio::Evented::register to
+/// Implements mio::Source.  After creation, use mio::Source::register to
 /// connect to the event loop
 impl<'a> AioCb<'a> {
     /// Wraps nix::sys::aio::AioCb::from_fd.
     pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
         let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: Mutex::new(aiocb) }
+        AioCb { inner: aiocb }
     }
 
     /// Wraps nix::sys::aio::from_mut_slice
@@ -54,7 +54,7 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_mut_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: Mutex::new(aiocb) }
+        AioCb { inner: aiocb }
     }
 
     /// Wraps nix::sys::aio::from_slice
@@ -64,12 +64,12 @@ impl<'a> AioCb<'a> {
                       prio: c_int, opcode: LioOpcode) -> AioCb {
         let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
                                            SigevNotify::SigevNone, opcode);
-        AioCb { inner: Mutex::new(aiocb) }
+        AioCb { inner: aiocb }
     }
 
     /// Read the final result of the operation
     pub fn aio_return(&mut self) -> nix::Result<isize> {
-        self.inner.get_mut().unwrap().aio_return()
+        self.inner.aio_return()
     }   // LCOV_EXCL_LINE
 
     /// Ask the operating system to cancel the operation
@@ -77,57 +77,59 @@ impl<'a> AioCb<'a> {
     /// Most file systems on most operating systems don't actually support
     /// cancellation; they'll just return `AIO_NOTCANCELED`.
     pub fn cancel(&mut self) -> nix::Result<aio::AioCancelStat> {
-        self.inner.get_mut().unwrap().cancel()
+        self.inner.cancel()
     }   // LCOV_EXCL_LINE
 
     /// Retrieve the status of an in-progress or complete operation.
     ///
     /// Not usually needed, since `mio_aio` always uses kqueue for notification.
     pub fn error(&mut self) -> nix::Result<()> {
-        self.inner.get_mut().unwrap().error()
+        self.inner.error()
     }   // LCOV_EXCL_LINE
 
     /// Asynchronously fsync a file.
     pub fn fsync(&mut self, mode: AioFsyncMode) -> nix::Result<()> {
-        self.inner.get_mut().unwrap().fsync(mode)
+        self.inner.fsync(mode)
     }   // LCOV_EXCL_LINE
 
     /// Asynchronously read from a file.
     pub fn read(&mut self) -> nix::Result<()> {
-        self.inner.get_mut().unwrap().read()
+        self.inner.read()
     }   // LCOV_EXCL_LINE
 
     /// Asynchronously write to a file.
     pub fn write(&mut self) -> nix::Result<()> {
-        self.inner.get_mut().unwrap().write()
+        self.inner.write()
     }   // LCOV_EXCL_LINE
 }
 
-impl<'a> Evented for AioCb<'a> {
-    fn register(&self,
-                poll: &Poll,
-                token: Token,
-                events: Ready,
-                _: PollOpt) -> io::Result<()> {
-        assert!(UnixReady::from(events).is_aio());
+impl<'a> Source for AioCb<'a> {
+    fn register(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        assert!(interests.is_aio());
         let udata = usize::from(token);
-        let kq = poll.as_raw_fd();
+        let kq = registry.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.inner.lock().unwrap().set_sigev_notify(sigev);
+        self.inner.set_sigev_notify(sigev);
         Ok(())
     }
 
-    fn reregister(&self,
-                  poll: &Poll,
-                  token: Token,
-                  events: Ready,
-                  opts: PollOpt) -> io::Result<()> {
-        self.register(poll, token, events, opts)
+    fn reregister(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        self.register(registry, token, interests)
     }
 
-    fn deregister(&self, _: &Poll) -> io::Result<()> {
+    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
         let sigev = SigevNotify::SigevNone;
-        self.inner.lock().unwrap().set_sigev_notify(sigev);
+        self.inner.set_sigev_notify(sigev);
         Ok(())
     }
 }
@@ -139,7 +141,7 @@ pub struct LioCb<'a> {
     // Unlike AioCb, registering this structure does not modify the AioCb's
     // themselves, so no Mutex is needed.
     inner: aio::LioCb<'a>,
-    sev: Mutex<SigevNotify>
+    sev: SigevNotify
 }
 // LCOV_EXCL_STOP
 
@@ -215,8 +217,7 @@ impl<'a> LioCb<'a> {
     /// notification that the enqueued operations are complete, then examine the
     /// result of each operation to determine the problem.
     pub fn submit(&mut self) -> Result<(), LioError> {
-        let sev =*self.sev.lock().unwrap();
-        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, sev);
+        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev);
         self.fix_submit_error(e)
     }
 
@@ -228,8 +229,7 @@ impl<'a> LioCb<'a> {
     ///
     /// [`lio_listio`](http://pubs.opengroup.org/onlinepubs/9699919799/functions/lio_listio.html)
     pub fn resubmit(&mut self) -> Result<(), LioError> {
-        let sev =*self.sev.lock().unwrap();
-        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, sev);
+        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, self.sev);
         self.fix_submit_error(e)
     }
 
@@ -254,31 +254,33 @@ impl<'a> LioCb<'a> {
     }
 }
 
-impl<'a> Evented for LioCb<'a> {
-    fn register(&self,
-                poll: &Poll,
-                token: Token,
-                events: Ready,
-                _: PollOpt) -> io::Result<()> {
-        assert!(UnixReady::from(events).is_lio());
+impl<'a> Source for LioCb<'a> {
+    fn register(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        assert!(interests.is_lio());
         let udata = usize::from(token);
-        let kq = poll.as_raw_fd();
+        let kq = registry.as_raw_fd();
         let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        *self.sev.lock().unwrap() = sigev;
+        self.sev = sigev;
         Ok(())
     }
 
-    fn reregister(&self,
-                  poll: &Poll,
-                  token: Token,
-                  events: Ready,
-                  opts: PollOpt) -> io::Result<()> {
-        self.register(poll, token, events, opts)
+    fn reregister(
+        &mut self,
+        registry: &Registry,
+        token: Token,
+        interests: Interest,
+    ) -> io::Result<()> {
+        self.register(registry, token, interests)
     }
 
-    fn deregister(&self, _: &Poll) -> io::Result<()> {
+    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
         let sigev = SigevNotify::SigevNone;
-        *self.sev.lock().unwrap() = sigev;
+        self.sev = sigev;
         Ok(())
     }
 }
@@ -328,7 +330,7 @@ impl<'a> LioCbBuilder<'a> {
     pub fn finish(self) -> LioCb<'a> {
         LioCb {
             inner: self.0.finish(),
-            sev: Mutex::new(SigevNotify::SigevNone)
+            sev: SigevNotify::SigevNone
         }
     }
 
