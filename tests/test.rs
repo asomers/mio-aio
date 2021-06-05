@@ -21,7 +21,7 @@ pub fn test_aio_cancel() {
     let mut events = Events::with_capacity(1024);
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
-        &WBUF,
+        WBUF,
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
     poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
@@ -143,7 +143,7 @@ pub fn test_aio_write_static() {
     let mut events = Events::with_capacity(1024);
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
-        &WBUF,
+        WBUF,
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
     poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
