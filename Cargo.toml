@@ -12,6 +12,7 @@ POSIX AIO bindings for mio
 categories = ["asynchronous", "filesystem"]
 keywords = ["io", "async", "non-blocking", "aio"]
 documentation = "https://asomers.github.io/mio-aio/mio_aio/"
+exclude = ["release.toml"]
 
 [package.metadata.docs.rs]
 targets = [
