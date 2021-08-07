@@ -21,7 +21,7 @@ targets = [
 
 [dependencies]
 mio = "0.6.13"
-nix = "0.21.0"
+nix = "0.22.0"
 
 [dev-dependencies]
 assert-impl = "0.1"

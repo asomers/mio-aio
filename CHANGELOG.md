@@ -1,3 +1,11 @@
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Updated Nix to 0.22.0.  This changes mio-aio's error types, because we
+  reexport from Nix.
+  (#[21](https://github.com/asomers/mio-aio/pull/21))
+
 ## [0.5.0] - 2021-05-31
 
 ### Changed
