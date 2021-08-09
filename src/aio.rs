@@ -148,9 +148,9 @@ impl<'a> LioCb<'a> {
     /// `lio_listio` into something more useful.
     fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
         match e {
-            Err(nix::Error::Sys(nix::errno::Errno::EAGAIN)) |
-            Err(nix::Error::Sys(nix::errno::Errno::EIO)) |
-            Err(nix::Error::Sys(nix::errno::Errno::EINTR)) => {
+            Err(nix::Error::EAGAIN) |
+            Err(nix::Error::EIO) |
+            Err(nix::Error::EINTR) => {
                 // Unfortunately, FreeBSD uses EIO to indicate almost any
                 // problem with lio_listio.  We must examine every aiocb to
                 // determine which error to return
@@ -160,7 +160,7 @@ impl<'a> LioCb<'a> {
                 let mut n_ok = 0;
                 let errors = (0..self.inner.len())
                 .map(|i| {
-                    self.inner.error(i).map_err(|e| e.as_errno().unwrap())
+                    self.inner.error(i)
                 }).collect::<Vec<_>>();
                 for (i, e) in errors.iter().enumerate() {
                     match e {
