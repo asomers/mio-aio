@@ -1,3 +1,10 @@
+## [Unreleased] - ReleaseDate
+
+## Changed
+
+- Nix is now at 0.22.0, which means that mio-aio's error types implement
+  `Into<std::io::Error>`.
+
 ## [0.5.0] - 2021-05-31
 
 ### Changed
