@@ -15,9 +15,14 @@ documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 exclude = ["release.toml"]
 
 [package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 targets = [
   "x86_64-unknown-freebsd",
 ]
+
+[features]
+default = []
+tokio = []
 
 [dependencies]
 mio = "0.7.0"

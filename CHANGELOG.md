@@ -8,6 +8,9 @@
 
 - Updated mio to 0.7.
 
+- Added a `tokio` feature flag, which enables extra methods needed by a mio-aio
+  consumers that wish to implement Tokio's `AioSource` trait.
+
 ## [0.5.0] - 2021-05-31
 
 ### Changed

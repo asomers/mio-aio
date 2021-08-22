@@ -80,6 +80,18 @@ impl<'a> AioCb<'a> {
         self.inner.cancel()
     }   // LCOV_EXCL_LINE
 
+    fn _deregister_raw(&mut self) {
+        let sigev = SigevNotify::SigevNone;
+        self.inner.set_sigev_notify(sigev);
+    }
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    pub fn deregister_raw(&mut self) {
+        self._deregister_raw()
+    }
+
     /// Retrieve the status of an in-progress or complete operation.
     ///
     /// Not usually needed, since `mio_aio` always uses kqueue for notification.
@@ -97,6 +109,18 @@ impl<'a> AioCb<'a> {
         self.inner.read()
     }   // LCOV_EXCL_LINE
 
+    fn _register_raw(&mut self, kq: RawFd, udata: usize) {
+        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
+        self.inner.set_sigev_notify(sigev);
+    }
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    pub fn register_raw(&mut self, kq: RawFd, udata: usize) {
+        self._register_raw(kq, udata)
+    }
+
     /// Asynchronously write to a file.
     pub fn write(&mut self) -> nix::Result<()> {
         self.inner.write()
@@ -113,8 +137,7 @@ impl<'a> Source for AioCb<'a> {
         assert!(interests.is_aio());
         let udata = usize::from(token);
         let kq = registry.as_raw_fd();
-        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.inner.set_sigev_notify(sigev);
+        self._register_raw(kq, udata);
         Ok(())
     }
 
@@ -128,8 +151,7 @@ impl<'a> Source for AioCb<'a> {
     }
 
     fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
-        let sigev = SigevNotify::SigevNone;
-        self.inner.set_sigev_notify(sigev);
+        self._deregister_raw();
         Ok(())
     }
 }
@@ -146,6 +168,18 @@ pub struct LioCb<'a> {
 // LCOV_EXCL_STOP
 
 impl<'a> LioCb<'a> {
+    fn _deregister_raw(&mut self) {
+        let sigev = SigevNotify::SigevNone;
+        self.sev = sigev;
+    }
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    pub fn deregister_raw(&mut self) {
+        self._deregister_raw()
+    }
+
     /// Translate the operating system's somewhat unhelpful error from
     /// `lio_listio` into something more useful.
     fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
@@ -201,6 +235,18 @@ impl<'a> LioCb<'a> {
             Ok(()) => Ok(()),
             _ => panic!("lio_listio returned unhandled error {:?}", e)
         }
+    }
+
+    fn _register_raw(&mut self, kq: RawFd, udata: usize) {
+        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
+        self.sev = sigev;
+    }
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    pub fn register_raw(&mut self, kq: RawFd, udata: usize) {
+        self._register_raw(kq, udata)
     }
 
     /// Submit an `LioCb` to the `aio(4)` subsystem.
@@ -264,8 +310,7 @@ impl<'a> Source for LioCb<'a> {
         assert!(interests.is_lio());
         let udata = usize::from(token);
         let kq = registry.as_raw_fd();
-        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.sev = sigev;
+        self._register_raw(kq, udata);
         Ok(())
     }
 
@@ -279,8 +324,7 @@ impl<'a> Source for LioCb<'a> {
     }
 
     fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
-        let sigev = SigevNotify::SigevNone;
-        self.sev = sigev;
+        self._deregister_raw();
         Ok(())
     }
 }
