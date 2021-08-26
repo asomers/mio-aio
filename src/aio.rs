@@ -160,8 +160,6 @@ impl<'a> Source for AioCb<'a> {
 // LCOV_EXCL_START
 #[derive(Debug)]
 pub struct LioCb<'a> {
-    // Unlike AioCb, registering this structure does not modify the AioCb's
-    // themselves, so no Mutex is needed.
     inner: aio::LioCb<'a>,
     sev: SigevNotify
 }
