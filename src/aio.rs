@@ -24,6 +24,7 @@ pub struct LioResult {
 
 // LCOV_EXCL_START
 #[derive(Debug)]
+/// A single asynchronous I/O operation
 pub struct AioCb<'a> {
     // Must use Pin for the AioCb so its location in memory will be
     // constant.  It is an error to move a libc::aiocb after passing it to the
@@ -135,6 +136,7 @@ impl<'a> Evented for AioCb<'a> {
 
 // LCOV_EXCL_START
 #[derive(Debug)]
+/// A collection of multiple asynchronous I/O operations
 pub struct LioCb<'a> {
     // Unlike AioCb, registering this structure does not modify the AioCb's
     // themselves, so no Mutex is needed.
@@ -293,6 +295,15 @@ impl<'a> Evented for LioCb<'a> {
 pub struct LioCbBuilder<'a>(aio::LioCbBuilder<'a>);
 
 impl<'a> LioCbBuilder<'a> {
+    /// Add a new operation on a mutable slice
+    ///
+    /// # Arguments
+    ///
+    /// `fd` -      File descriptor the file to read from or write to.
+    /// `offset` -  Offset within the file to read from or write to.
+    /// `buf` -     Memory location for the data
+    /// `prio` -    I/O priority.  Not supported by all operating systems.
+    /// `opcode` -  Should be either `LIO_READ` or `LIO_WRITE`.
     pub fn emplace_mut_slice(self, fd: RawFd, offset: u64,
                          buf: &'a mut [u8], prio: i32, opcode: LioOpcode)
         -> Self
@@ -309,6 +320,15 @@ impl<'a> LioCbBuilder<'a> {
         )
     }
 
+    /// Add a new operation on an immutable mutable slice
+    ///
+    /// # Arguments
+    ///
+    /// `fd` -      File descriptor the file to read from or write to.
+    /// `offset` -  Offset within the file to read from or write to.
+    /// `buf` -     Memory location for the data
+    /// `prio` -    I/O priority.  Not supported by all operating systems.
+    /// `opcode` -  Should be either `LIO_READ` or `LIO_WRITE`.
     pub fn emplace_slice(self, fd: RawFd, offset: u64,
                          buf: &'a [u8], prio: i32, opcode: LioOpcode)
         -> Self
@@ -325,6 +345,10 @@ impl<'a> LioCbBuilder<'a> {
         )
     }
 
+    /// Complete the build into an [`LioCb`], ready to use.
+    ///
+    /// The operating system requires a stable memory location once I/O is
+    /// submitted, so no new operations may be added after `finish`.
     pub fn finish(self) -> LioCb<'a> {
         LioCb {
             inner: self.0.finish(),
@@ -332,6 +356,7 @@ impl<'a> LioCbBuilder<'a> {
         }
     }
 
+    /// Create a new `LioCbBuilder` with room for `capacity` operations.
     pub fn with_capacity(capacity: usize) -> LioCbBuilder<'a> {
         LioCbBuilder(aio::LioCbBuilder::with_capacity(capacity))
     }
@@ -352,6 +377,7 @@ pub enum LioError {
 }
 
 impl LioError {
+    /// Conveniently destructure into an [`LioError::EIO`].
     pub fn into_eio(self) -> Result<Vec<Result<(), Errno>>, Self> {
         if let LioError::EIO(eio) = self {
             Ok(eio)

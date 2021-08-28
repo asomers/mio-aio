@@ -1,4 +1,5 @@
 //! MIO bindings for POSIX AIO
+#![deny(missing_docs)]
 
 extern crate mio;
 extern crate nix;
