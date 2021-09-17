@@ -7,10 +7,10 @@ task:
     # Temporary workaround for https://github.com/rust-lang/rustup/issues/2774
     RUSTUP_IO_THREADS: 1
   matrix:
-    - name: FreeBSD 11 amd64 nightly
+    - name: FreeBSD 12 amd64 nightly
       env:
         VERSION: nightly
-    - name: FreeBSD 11 amd64 MSRV
+    - name: FreeBSD 12 amd64 MSRV
       env:
         VERSION: 1.41.0
   # Install Rust
