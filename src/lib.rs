@@ -4,6 +4,7 @@
 //!
 //! * `tokio` - Add extra methods needed for consumers to implement Tokio's
 //!             `AioSource` trait.
+#![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod aio;
