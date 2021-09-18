@@ -1,8 +1,11 @@
 //! MIO bindings for POSIX AIO
+//!
+//! # Feature Flags
+//!
+//! * `tokio` - Add extra methods needed for consumers to implement Tokio's
+//!             `AioSource` trait.
 #![deny(missing_docs)]
-
-extern crate mio;
-extern crate nix;
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod aio;
 

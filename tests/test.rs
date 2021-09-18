@@ -2,8 +2,7 @@ extern crate mio;
 extern crate mio_aio;
 extern crate tempfile;
 
-use mio::{Events, Poll, PollOpt, Token};
-use mio::unix::UnixReady;
+use mio::{Events, Interest, Poll, Token};
 use tempfile::tempfile;
 use std::os::unix::io::AsRawFd;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -17,14 +16,14 @@ pub fn test_aio_cancel() {
     const WBUF: &[u8] = b"abcdef";
     let f = tempfile().unwrap();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         WBUF,
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -34,7 +33,7 @@ pub fn test_aio_cancel() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_aio());
+    assert!(ev.is_aio());
 
     // Since we cancelled the I/O, we musn't care whether it succeeded.
     let _ = aiocb.aio_return();
@@ -47,11 +46,11 @@ pub fn test_aio_fsync() {
     const INITIAL: &[u8] = b"abcdef123456";
     let mut f = tempfile().unwrap();
     f.write_all(INITIAL).unwrap();
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
-    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
 
     aiocb.fsync(mio_aio::AioFsyncMode::O_SYNC).unwrap();
@@ -59,7 +58,7 @@ pub fn test_aio_fsync() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_aio());
+    assert!(ev.is_aio());
 
     assert!(aiocb.error().is_ok());
     aiocb.aio_return().unwrap();
@@ -74,7 +73,7 @@ pub fn test_aio_read() {
     let mut f = tempfile().unwrap();
     f.write_all(INITIAL).unwrap();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     {
         let mut aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
@@ -82,7 +81,7 @@ pub fn test_aio_read() {
             &mut rbuf,
             0,   //priority
             mio_aio::LioOpcode::LIO_NOP);
-        poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+        poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
             .expect("registration failed");
 
         aiocb.read().unwrap();
@@ -91,7 +90,7 @@ pub fn test_aio_read() {
         let mut it = events.iter();
         let ev = it.next().unwrap();
         assert_eq!(ev.token(), UDATA);
-        assert!(UnixReady::from(ev.readiness()).is_aio());
+        assert!(ev.is_aio());
 
         assert!(aiocb.error().is_ok());
         assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
@@ -106,14 +105,14 @@ pub fn test_aio_write() {
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         &wbuf,
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -122,7 +121,7 @@ pub fn test_aio_write() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_aio());
+    assert!(ev.is_aio());
 
     assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
@@ -139,14 +138,14 @@ pub fn test_aio_write_static() {
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
     let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
         0,   //offset
         WBUF,
         0,   //priority
         mio_aio::LioOpcode::LIO_NOP);
-    poll.register(&aiocb, UDATA, UnixReady::aio().into(), PollOpt::empty())
+    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
 
     aiocb.write().unwrap();
@@ -155,7 +154,7 @@ pub fn test_aio_write_static() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_aio());
+    assert!(ev.is_aio());
 
     assert!(aiocb.error().is_ok());
     assert_eq!(aiocb.aio_return().unwrap(), WBUF.len() as isize);
@@ -177,7 +176,7 @@ pub fn test_lio_eio() {
     builder = builder.emplace_slice(fd, 0, wbuf0, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
     let mut liocb = builder.finish();
-    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
         .expect("registration failed");
 
     let r = liocb.submit();
@@ -194,14 +193,14 @@ pub fn test_lio_oneread() {
     let mut buf = vec![0; 4];
     f.write_all(INITIAL).unwrap();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
     builder = builder.emplace_mut_slice(f.as_raw_fd(), 2, &mut buf[..], 0,
         mio_aio::LioOpcode::LIO_READ);
     let mut liocb = builder.finish();
-    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
         .expect("registration failed");
 
     liocb.submit().unwrap();
@@ -210,7 +209,7 @@ pub fn test_lio_oneread() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_lio());
+    assert!(ev.is_lio());
 
     liocb.into_results(|mut iter| {
         let lr = iter.next().unwrap();
@@ -227,14 +226,14 @@ pub fn test_lio_onewrite() {
     let mut f = tempfile().unwrap();
     let mut rbuf = Vec::new();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
     builder = builder.emplace_slice(f.as_raw_fd(), 0, &wbuf[..], 0,
                         mio_aio::LioOpcode::LIO_WRITE);
     let mut liocb = builder.finish();
-    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
         .expect("registration failed");
 
     liocb.submit().unwrap();
@@ -243,7 +242,7 @@ pub fn test_lio_onewrite() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_lio());
+    assert!(ev.is_lio());
 
     liocb.into_results(|mut iter| {
         let lr = iter.next().unwrap();
@@ -267,7 +266,7 @@ pub fn test_lio_tworeads() {
     let mut rbuf1 = vec![0; 5];
     f.write_all(INITIAL).unwrap();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
@@ -276,7 +275,7 @@ pub fn test_lio_tworeads() {
     builder = builder.emplace_mut_slice(f.as_raw_fd(), 7, &mut rbuf1[..], 0,
                             mio_aio::LioOpcode::LIO_READ);
     let mut liocb = builder.finish();
-    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
         .expect("registration failed");
 
     liocb.submit().unwrap();
@@ -285,7 +284,7 @@ pub fn test_lio_tworeads() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_lio());
+    assert!(ev.is_lio());
 
     liocb.into_results(|mut iter| {
         let lr0 = iter.next().unwrap();
@@ -311,7 +310,7 @@ pub fn test_lio_read_and_write() {
     let mut rbuf1 = Vec::new();
     f0.write_all(INITIAL0).unwrap();
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
 
     let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
@@ -320,7 +319,7 @@ pub fn test_lio_read_and_write() {
     builder = builder.emplace_slice(f1.as_raw_fd(), 0, WBUF1, 0,
                         mio_aio::LioOpcode::LIO_WRITE);
     let mut liocb = builder.finish();
-    poll.register(&liocb, UDATA, UnixReady::lio().into(), PollOpt::empty())
+    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
         .expect("registration failed");
 
     liocb.submit().unwrap();
@@ -329,7 +328,7 @@ pub fn test_lio_read_and_write() {
     let mut it = events.iter();
     let ev = it.next().unwrap();
     assert_eq!(ev.token(), UDATA);
-    assert!(UnixReady::from(ev.readiness()).is_lio());
+    assert!(ev.is_lio());
 
     liocb.into_results(|mut iter| {
         let lr0 = iter.next().unwrap();

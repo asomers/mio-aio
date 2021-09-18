@@ -15,17 +15,23 @@ documentation = "https://asomers.github.io/mio-aio/mio_aio/"
 include = ["src/**/*", "LICENSE-*", "README.md", "CHANGELOG.md"]
 
 [package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 targets = [
   "x86_64-unknown-freebsd",
 ]
 
+[features]
+default = []
+tokio = []
+
 [dependencies]
-mio = "0.6.13"
+mio = "0.7.0"
 nix = "0.22.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
 log = "0.3.4"
+mio = { version = "0.7.7", features = ["os-poll"] }
 sysctl = "0.1"
 tempfile = "3.0"
 
