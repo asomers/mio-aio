@@ -12,7 +12,7 @@ task:
         VERSION: nightly
     - name: FreeBSD 12 amd64 MSRV
       env:
-        VERSION: 1.41.0
+        VERSION: 1.46.0
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
