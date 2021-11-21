@@ -25,13 +25,13 @@ default = []
 tokio = []
 
 [dependencies]
-mio = "0.7.0"
+mio = "0.8.0"
 nix = "0.23.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
 log = "0.3.4"
-mio = { version = "0.7.7", features = ["os-poll"] }
+mio = { version = "0.8.0", features = ["os-poll"] }
 sysctl = "0.1"
 tempfile = "3.0"
 

@@ -4,6 +4,8 @@
 
 - Updated Nix to 0.23.  This change raises MSRV from 1.41 to 1.46.
 
+- Updated mio to 0.8.
+
 ## [0.6.0] - 2021-09-17
 
 ### Changed
