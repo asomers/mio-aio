@@ -26,7 +26,7 @@ tokio = []
 
 [dependencies]
 mio = "0.7.0"
-nix = "0.22.0"
+nix = "0.23.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
