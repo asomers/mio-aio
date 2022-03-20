@@ -34,4 +34,8 @@ task:
   clippy_script:
     - . $HOME/.cargo/env
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
+  audit_script:
+    - . $HOME/.cargo/env
+    - cargo install cargo-audit
+    - cargo audit
   before_cache_script: rm -rf $HOME/.cargo/registry/index
