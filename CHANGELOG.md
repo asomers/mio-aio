@@ -1,4 +1,4 @@
-## [Unreleased] - ReleaseDate
+## [0.7.0] - 2022-04-21
 
 ### Changed
 
