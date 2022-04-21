@@ -2,7 +2,7 @@
 
 ### Changed
 
-- Updated Nix to 0.23.  This change raises MSRV from 1.41 to 1.46.
+- Updated Nix to 0.24.  This change raises MSRV from 1.41 to 1.46.
 
 - Updated mio to 0.8.
 
