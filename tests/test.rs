@@ -3,9 +3,10 @@ extern crate mio_aio;
 extern crate tempfile;
 
 use mio::{Events, Interest, Poll, Token};
+use mio_aio::SourceApi;
 use tempfile::tempfile;
 use std::os::unix::io::AsRawFd;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write};
 use std::ops::Deref;
 
 
@@ -18,16 +19,17 @@ pub fn test_aio_cancel() {
 
     let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
+    let mut aiocb = mio_aio::WriteAt::write_at(f.as_raw_fd(),
         0,   //offset
         WBUF,
         0,   //priority
-        mio_aio::LioOpcode::LIO_NOP);
+    );
     poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
+    let mut aiocb = Box::pin(aiocb);
 
-    aiocb.write().unwrap();
-    aiocb.cancel().expect("aio_cancel failed");
+    aiocb.as_mut().submit().unwrap();
+    aiocb.as_mut().cancel().expect("aio_cancel failed");
 
     poll.poll(&mut events, None).expect("poll failed");
     let mut it = events.iter();
@@ -36,55 +38,145 @@ pub fn test_aio_cancel() {
     assert!(ev.is_aio());
 
     // Since we cancelled the I/O, we musn't care whether it succeeded.
-    let _ = aiocb.aio_return();
+    let _ = aiocb.as_mut().aio_return();
     assert!(it.next().is_none());
 }
 
+mod aio_fsync {
+    use super::*;
 
-#[test]
-pub fn test_aio_fsync() {
-    const INITIAL: &[u8] = b"abcdef123456";
-    let mut f = tempfile().unwrap();
-    f.write_all(INITIAL).unwrap();
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
+    #[test]
+    fn ok() {
+        const INITIAL: &[u8] = b"abcdef123456";
+        let mut f = tempfile().unwrap();
+        f.write_all(INITIAL).unwrap();
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
 
-    let mut aiocb = mio_aio::AioCb::from_fd( f.as_raw_fd(), 0);
-    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
-        .expect("registration failed");
-
-    aiocb.fsync(mio_aio::AioFsyncMode::O_SYNC).unwrap();
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_aio());
-
-    assert!(aiocb.error().is_ok());
-    aiocb.aio_return().unwrap();
-    assert!(it.next().is_none());
-}
-
-#[test]
-pub fn test_aio_read() {
-    const INITIAL: &[u8] = b"abcdef123456";
-    let mut rbuf = vec![0; 4];
-    const EXPECT: &[u8] = b"cdef";
-    let mut f = tempfile().unwrap();
-    f.write_all(INITIAL).unwrap();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-    {
-        let mut aiocb = mio_aio::AioCb::from_mut_slice(f.as_raw_fd(),
-            2,   //offset
-            &mut rbuf,
-            0,   //priority
-            mio_aio::LioOpcode::LIO_NOP);
-        poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
+        let mut aiof = mio_aio::Source::fsync(
+            f.as_raw_fd(),
+            mio_aio::AioFsyncMode::O_SYNC,
+            0
+        );
+        poll.registry().register(&mut aiof, UDATA, Interest::AIO)
             .expect("registration failed");
 
-        aiocb.read().unwrap();
+        let mut aiof = Box::pin(aiof);
+        aiof.as_mut().submit().unwrap();
+        poll.poll(&mut events, None).expect("poll failed");
+        let mut it = events.iter();
+        let ev = it.next().unwrap();
+        assert_eq!(ev.token(), UDATA);
+        assert!(ev.is_aio());
+
+        assert!(aiof.as_mut().error().is_ok());
+        aiof.as_mut().aio_return().unwrap();
+        assert!(it.next().is_none());
+    }
+
+}
+
+mod aio_read {
+    use super::*;
+
+    #[test]
+    fn ok() {
+        const INITIAL: &[u8] = b"abcdef123456";
+        let mut rbuf = vec![0; 4];
+        const EXPECT: &[u8] = b"cdef";
+        let mut f = tempfile().unwrap();
+        f.write_all(INITIAL).unwrap();
+
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
+        {
+            let mut aior = mio_aio::Source::read_at(f.as_raw_fd(),
+                2,   //offset
+                &mut rbuf,
+                0,   //priority
+            );
+            poll.registry().register(&mut aior, UDATA, Interest::AIO)
+                .expect("registration failed");
+            let mut aior = Box::pin(aior);
+
+            aior.as_mut().submit().unwrap();
+
+            poll.poll(&mut events, None).expect("poll failed");
+            let mut it = events.iter();
+            let ev = it.next().unwrap();
+            assert_eq!(ev.token(), UDATA);
+            assert!(ev.is_aio());
+
+            assert!(aior.as_mut().error().is_ok());
+            assert_eq!(aior.as_mut().aio_return().unwrap(), EXPECT.len());
+            assert!(it.next().is_none());
+        }
+        assert!(rbuf.deref().deref() == EXPECT);
+    }
+}
+
+mod aio_readv {
+    use super::*;
+
+    #[test]
+    fn ok() {
+        const INITIAL: &[u8] = b"abcdef123456";
+        let mut rbuf0 = vec![0; 4];
+        let mut rbuf1 = vec![0; 2];
+        let mut rbufs = [IoSliceMut::new(&mut rbuf0),
+            IoSliceMut::new(&mut rbuf1)];
+        const EXPECT0: &[u8] = b"cdef";
+        const EXPECT1: &[u8] = b"12";
+        let mut f = tempfile().unwrap();
+        f.write_all(INITIAL).unwrap();
+
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
+        {
+            let mut aior = mio_aio::Source::readv_at(f.as_raw_fd(),
+                2,   //offset
+                &mut rbufs,
+                0,   //priority
+            );
+            poll.registry().register(&mut aior, UDATA, Interest::AIO)
+                .expect("registration failed");
+            let mut aior = Box::pin(aior);
+
+            aior.as_mut().submit().unwrap();
+
+            poll.poll(&mut events, None).expect("poll failed");
+            let mut it = events.iter();
+            let ev = it.next().unwrap();
+            assert_eq!(ev.token(), UDATA);
+            assert!(ev.is_aio());
+
+            assert!(aior.as_mut().error().is_ok());
+            assert_eq!(aior.as_mut().aio_return().unwrap(),
+                       (EXPECT0.len() + EXPECT1.len()));
+            assert!(it.next().is_none());
+        }
+        assert!(rbuf0 == EXPECT0);
+        assert!(rbuf1 == EXPECT1);
+    }
+}
+
+mod aio_write {
+    use super::*;
+
+    #[test]
+    fn cancel() {
+        let wbuf = String::from("abcdef").into_bytes().into_boxed_slice();
+        let f = tempfile().unwrap();
+
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
+        let mut aiow = mio_aio::Source::write_at(f.as_raw_fd(), 0, &wbuf, 0);
+        poll.registry().register(&mut aiow, UDATA, Interest::AIO)
+            .expect("registration failed");
+        let mut aiow = Box::pin(aiow);
+
+        aiow.as_mut().submit().unwrap();
+        aiow.as_mut().cancel().unwrap();
 
         poll.poll(&mut events, None).expect("poll failed");
         let mut it = events.iter();
@@ -92,259 +184,75 @@ pub fn test_aio_read() {
         assert_eq!(ev.token(), UDATA);
         assert!(ev.is_aio());
 
-        assert!(aiocb.error().is_ok());
-        assert_eq!(aiocb.aio_return().unwrap(), EXPECT.len() as isize);
+        // Since we cancelled the I/O, we musn't care whether it succeeded.
+        let _ = aiow.as_mut().aio_return();
         assert!(it.next().is_none());
     }
-    assert!(rbuf.deref().deref() == EXPECT);
+
+    #[test]
+    fn ok() {
+        let wbuf = String::from("abcdef").into_bytes().into_boxed_slice();
+        let mut f = tempfile().unwrap();
+        let mut rbuf = Vec::new();
+
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
+        let mut aiow = mio_aio::Source::write_at(f.as_raw_fd(), 0, &wbuf, 0);
+        poll.registry().register(&mut aiow, UDATA, Interest::AIO)
+            .expect("registration failed");
+        let mut aiow = Box::pin(aiow);
+
+        aiow.as_mut().submit().unwrap();
+
+        poll.poll(&mut events, None).expect("poll failed");
+        let mut it = events.iter();
+        let ev = it.next().unwrap();
+        assert_eq!(ev.token(), UDATA);
+        assert!(ev.is_aio());
+
+        assert!(aiow.as_mut().error().is_ok());
+        assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+        f.seek(SeekFrom::Start(0)).unwrap();
+        let len = f.read_to_end(&mut rbuf).unwrap();
+        assert!(len == wbuf.len());
+        assert!(rbuf == wbuf.deref().deref());
+        assert!(it.next().is_none());
+    }
 }
 
-#[test]
-pub fn test_aio_write() {
-    let wbuf = String::from("abcdef").into_bytes().into_boxed_slice();
-    let mut f = tempfile().unwrap();
-    let mut rbuf = Vec::new();
+mod aio_writev {
+    use super::*;
 
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
-        0,   //offset
-        &wbuf,
-        0,   //priority
-        mio_aio::LioOpcode::LIO_NOP);
-    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
-        .expect("registration failed");
+    #[test]
+    fn ok() {
+        let wbuf0 = b"abcde";
+        let wbuf1 = b"fghi";
+        let wbufs = [IoSlice::new(wbuf0), IoSlice::new(wbuf1)];
+        let expected = b"abcdefghi";
+        let mut f = tempfile().unwrap();
+        let mut rbuf = Vec::new();
 
-    aiocb.write().unwrap();
+        let mut poll = Poll::new().unwrap();
+        let mut events = Events::with_capacity(1024);
+        let mut aiow = mio_aio::Source::writev_at(f.as_raw_fd(), 0, &wbufs, 0);
+        poll.registry().register(&mut aiow, UDATA, Interest::AIO)
+            .expect("registration failed");
+        let mut aiow = Box::pin(aiow);
 
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_aio());
+        aiow.as_mut().submit().unwrap();
 
-    assert!(aiocb.error().is_ok());
-    assert_eq!(aiocb.aio_return().unwrap(), wbuf.len() as isize);
-    f.seek(SeekFrom::Start(0)).unwrap();
-    let len = f.read_to_end(&mut rbuf).unwrap();
-    assert!(len == wbuf.len());
-    assert!(rbuf == wbuf.deref().deref());
-    assert!(it.next().is_none());
-}
+        poll.poll(&mut events, None).expect("poll failed");
+        let mut it = events.iter();
+        let ev = it.next().unwrap();
+        assert_eq!(ev.token(), UDATA);
+        assert!(ev.is_aio());
 
-#[test]
-pub fn test_aio_write_static() {
-    const WBUF: &[u8] = b"abcdef";
-    let mut f = tempfile().unwrap();
-    let mut rbuf = Vec::new();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-    let mut aiocb = mio_aio::AioCb::from_slice(f.as_raw_fd(),
-        0,   //offset
-        WBUF,
-        0,   //priority
-        mio_aio::LioOpcode::LIO_NOP);
-    poll.registry().register(&mut aiocb, UDATA, Interest::AIO)
-        .expect("registration failed");
-
-    aiocb.write().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_aio());
-
-    assert!(aiocb.error().is_ok());
-    assert_eq!(aiocb.aio_return().unwrap(), WBUF.len() as isize);
-    f.seek(SeekFrom::Start(0)).unwrap();
-    let len = f.read_to_end(&mut rbuf).unwrap();
-    assert!(len == WBUF.len());
-    assert!(rbuf == WBUF);
-    assert!(it.next().is_none());
-}
-
-// lio_listio returns EIO because one of its children failed
-#[test]
-pub fn test_lio_eio() {
-    let wbuf0 = &b"abcdef"[..];
-    let poll = Poll::new().unwrap();
-
-    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
-    let fd = -1;    // Illegal file descriptor
-    builder = builder.emplace_slice(fd, 0, wbuf0, 0,
-                        mio_aio::LioOpcode::LIO_WRITE);
-    let mut liocb = builder.finish();
-    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
-        .expect("registration failed");
-
-    let r = liocb.submit();
-    let expected = Err(mio_aio::Errno::EBADF);
-    assert_eq!(r.unwrap_err().into_eio().unwrap()[0], expected);
-}
-
-#[test]
-pub fn test_lio_oneread() {
-    const INITIAL: &[u8] = b"abcdef123456";
-    const EXPECT: &[u8] = b"cdef";
-    let mut f = tempfile().unwrap();
-    //let dbs = DivBufShared::from(vec![0; 4]);
-    let mut buf = vec![0; 4];
-    f.write_all(INITIAL).unwrap();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-
-    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
-    builder = builder.emplace_mut_slice(f.as_raw_fd(), 2, &mut buf[..], 0,
-        mio_aio::LioOpcode::LIO_READ);
-    let mut liocb = builder.finish();
-    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
-        .expect("registration failed");
-
-    liocb.submit().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_lio());
-
-    liocb.into_results(|mut iter| {
-        let lr = iter.next().unwrap();
-        assert_eq!(lr.result.unwrap(), EXPECT.len() as isize);
-        assert!(iter.next().is_none());
-    });
-    assert!(it.next().is_none());
-    assert_eq!(EXPECT, &buf[..]);
-}
-
-#[test]
-pub fn test_lio_onewrite() {
-    let wbuf = b"abcdef";
-    let mut f = tempfile().unwrap();
-    let mut rbuf = Vec::new();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-
-    let mut builder = mio_aio::LioCbBuilder::with_capacity(1);
-    builder = builder.emplace_slice(f.as_raw_fd(), 0, &wbuf[..], 0,
-                        mio_aio::LioOpcode::LIO_WRITE);
-    let mut liocb = builder.finish();
-    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
-        .expect("registration failed");
-
-    liocb.submit().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_lio());
-
-    liocb.into_results(|mut iter| {
-        let lr = iter.next().unwrap();
-        assert_eq!(lr.result.unwrap(), wbuf.len() as isize);
-        assert!(iter.next().is_none());
-    });
-    f.seek(SeekFrom::Start(0)).unwrap();
-    let len = f.read_to_end(&mut rbuf).unwrap();
-    assert_eq!(len, wbuf.len());
-    assert_eq!(&wbuf[..], &rbuf[..]);
-    assert!(it.next().is_none());
-}
-
-#[test]
-pub fn test_lio_tworeads() {
-    const INITIAL: &[u8] = b"abcdef123456";
-    const EXPECT0: &[u8] = b"cdef";
-    const EXPECT1: &[u8] = b"23456";
-    let mut f = tempfile().unwrap();
-    let mut rbuf0 = vec![0; 4];
-    let mut rbuf1 = vec![0; 5];
-    f.write_all(INITIAL).unwrap();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-
-    let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
-    builder = builder.emplace_mut_slice(f.as_raw_fd(), 2, &mut rbuf0[..], 0,
-                            mio_aio::LioOpcode::LIO_READ);
-    builder = builder.emplace_mut_slice(f.as_raw_fd(), 7, &mut rbuf1[..], 0,
-                            mio_aio::LioOpcode::LIO_READ);
-    let mut liocb = builder.finish();
-    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
-        .expect("registration failed");
-
-    liocb.submit().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_lio());
-
-    liocb.into_results(|mut iter| {
-        let lr0 = iter.next().unwrap();
-        assert_eq!(lr0.result.unwrap(), EXPECT0.len() as isize);
-        let lr1 = iter.next().unwrap();
-        assert_eq!(lr1.result.unwrap(), EXPECT1.len() as isize);
-        assert!(iter.next().is_none());
-    });
-    assert_eq!(&rbuf0[..], EXPECT0);
-    assert_eq!(&rbuf1[..], EXPECT1);
-
-    assert!(it.next().is_none());
-}
-
-#[test]
-pub fn test_lio_read_and_write() {
-    const INITIAL0: &[u8] = b"abcdef123456";
-    const WBUF1: &[u8] = b"ABCDEFGHIJKL";
-    const EXPECT0: &[u8] = b"cdef";
-    let mut f0 = tempfile().unwrap();
-    let mut f1 = tempfile().unwrap();
-    let mut rbuf0 = vec![0; 4];
-    let mut rbuf1 = Vec::new();
-    f0.write_all(INITIAL0).unwrap();
-
-    let mut poll = Poll::new().unwrap();
-    let mut events = Events::with_capacity(1024);
-
-    let mut builder = mio_aio::LioCbBuilder::with_capacity(2);
-    builder = builder.emplace_mut_slice(f0.as_raw_fd(), 2, &mut rbuf0[..], 0,
-                            mio_aio::LioOpcode::LIO_READ);
-    builder = builder.emplace_slice(f1.as_raw_fd(), 0, WBUF1, 0,
-                        mio_aio::LioOpcode::LIO_WRITE);
-    let mut liocb = builder.finish();
-    poll.registry().register(&mut liocb, UDATA, Interest::LIO)
-        .expect("registration failed");
-
-    liocb.submit().unwrap();
-
-    poll.poll(&mut events, None).expect("poll failed");
-    let mut it = events.iter();
-    let ev = it.next().unwrap();
-    assert_eq!(ev.token(), UDATA);
-    assert!(ev.is_lio());
-
-    liocb.into_results(|mut iter| {
-        let lr0 = iter.next().unwrap();
-        assert_eq!(lr0.result.unwrap(), EXPECT0.len() as isize);
-
-        let lr1 = iter.next().unwrap();
-        assert_eq!(lr1.result.unwrap(), WBUF1.len() as isize);
-
-        assert!(iter.next().is_none());
-    });
-    assert_eq!(&rbuf0[..], EXPECT0);
-
-    f1.seek(SeekFrom::Start(0)).unwrap();
-    let len = f1.read_to_end(&mut rbuf1).unwrap();
-    assert_eq!(len, WBUF1.len());
-    assert_eq!(rbuf1, WBUF1);
-
-    assert!(it.next().is_none());
+        assert!(aiow.as_mut().error().is_ok());
+        assert_eq!(aiow.as_mut().aio_return().unwrap(), expected.len());
+        f.seek(SeekFrom::Start(0)).unwrap();
+        let len = f.read_to_end(&mut rbuf).unwrap();
+        assert_eq!(len, expected.len());
+        assert_eq!(expected, &rbuf[..]);
+        assert!(it.next().is_none());
+    }
 }
