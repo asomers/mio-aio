@@ -1,3 +1,15 @@
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Major rewrite.  The new crate is more efficient.  In particular, it:
+  * Does not internally Box the types that must be Pinned.  That is now the
+    caller's responsibility.
+  * Uses the native `aio_readv` and `aio_writev` functions, instead of faking
+    them with `lio_listio`.  This is more efficient, but requires FreeBSD 13.0
+    or later.
+  (#[29](https://github.com/asomers/mio-aio/pull/29))
+
 ## [0.7.0] - 2022-04-21
 
 ### Changed
