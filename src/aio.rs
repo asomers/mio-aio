@@ -1,134 +1,131 @@
 // vim: tw=80
-use nix::libc::{c_int, off_t};
+use std::{
+    io::{self, IoSlice, IoSliceMut},
+    os::unix::io::{AsRawFd, RawFd},
+    pin::Pin
+};
 use mio::{
     Interest,
     Registry,
     Token,
-    event::Source,
+    event,
 };
-use nix::errno::Errno;
-use nix::sys::aio;
-use nix::sys::signal::SigevNotify;
-use std::io;
-use std::iter::Iterator;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::io::RawFd;
-use std::pin::Pin;
+use nix::{
+    libc::off_t,
+    sys::{
+        aio::{self, Aio},
+        signal::SigevNotify
+    }
+};
 
 pub use nix::sys::aio::AioFsyncMode;
-pub use nix::sys::aio::LioOpcode;
 
+/// Return type of [`Source::read_at`]
+pub type ReadAt<'a> = Source<aio::AioRead<'a>>;
+/// Return type of [`Source::readv_at`]
+pub type ReadvAt<'a> = Source<aio::AioReadv<'a>>;
+/// Return type of [`Source::fsync`]
+pub type Fsync = Source<aio::AioFsync>;
+/// Return type of [`Source::write_at`]
+pub type WriteAt<'a> = Source<aio::AioWrite<'a>>;
+/// Return type of [`Source::writev_at`]
+pub type WritevAt<'a> = Source<aio::AioWritev<'a>>;
 
-/// Represents the result of an individual operation from an `LioCb::submit`
-/// call.
-pub struct LioResult {
-    pub result: nix::Result<isize>
-}
-
-// LCOV_EXCL_START
-#[derive(Debug)]
-/// A single asynchronous I/O operation
-pub struct AioCb<'a> {
-    // Must use Pin for the AioCb so its location in memory will be
-    // constant.  It is an error to move a libc::aiocb after passing it to the
-    // kernel.
-    inner: Pin<Box<aio::AioCb<'a>>>,
-}
-// LCOV_EXCL_STOP
-
-/// Wrapper around nix::sys::aio::AioCb.
-///
-/// Implements mio::Source.  After creation, use mio::Source::register to
-/// connect to the event loop
-impl<'a> AioCb<'a> {
-    /// Wraps nix::sys::aio::AioCb::from_fd.
-    pub fn from_fd(fd: RawFd, prio: c_int) -> AioCb<'a> {
-        let aiocb = aio::AioCb::from_fd(fd, prio, SigevNotify::SigevNone);
-        AioCb { inner: aiocb }
-    }
-
-    /// Wraps nix::sys::aio::from_mut_slice
-    ///
-    /// Not as useful as it sounds, because in typical mio use cases, the
-    /// compiler can't guarantee that the slice's lifetime is respected.
-    pub fn from_mut_slice(fd: RawFd, offs: u64, buf: &'a mut [u8],
-                      prio: c_int, opcode: LioOpcode) -> AioCb {
-        let aiocb = aio::AioCb::from_mut_slice(fd, offs as off_t, buf, prio,
-                                           SigevNotify::SigevNone, opcode);
-        AioCb { inner: aiocb }
-    }
-
-    /// Wraps nix::sys::aio::from_slice
-    ///
-    /// Mostly useful for writing constant slices
-    pub fn from_slice(fd: RawFd, offs: u64, buf: &'a [u8],
-                      prio: c_int, opcode: LioOpcode) -> AioCb {
-        let aiocb = aio::AioCb::from_slice(fd, offs as off_t, buf, prio,
-                                           SigevNotify::SigevNone, opcode);
-        AioCb { inner: aiocb }
-    }
+/// Common methods supported by all POSIX AIO Mio sources
+pub trait SourceApi {
+    /// Return type of [`SourceApi::aio_return`].
+    type Output;
 
     /// Read the final result of the operation
-    pub fn aio_return(&mut self) -> nix::Result<isize> {
-        self.inner.aio_return()
-    }   // LCOV_EXCL_LINE
+    fn aio_return(self: Pin<&mut Self>) -> nix::Result<Self::Output>;
 
     /// Ask the operating system to cancel the operation
     ///
     /// Most file systems on most operating systems don't actually support
     /// cancellation; they'll just return `AIO_NOTCANCELED`.
-    pub fn cancel(&mut self) -> nix::Result<aio::AioCancelStat> {
-        self.inner.cancel()
-    }   // LCOV_EXCL_LINE
+    fn cancel(self: Pin<&mut Self>) -> nix::Result<aio::AioCancelStat>;
+
+    /// Retrieve the status of an in-progress or complete operation.
+    ///
+    /// Not usually needed, since `mio_aio` always uses kqueue for notification.
+    fn error(self: Pin<&mut Self>) -> nix::Result<()>;
+
+    /// Does this operation currently have any in-kernel state?
+    fn in_progress(&self) -> bool;
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    fn deregister_raw(&mut self);
+
+    /// Extra registration method needed by Tokio
+    #[cfg(feature = "tokio")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
+    fn register_raw(&mut self, kq: RawFd, udata: usize);
+
+    /// Actually start the I/O operation.
+    ///
+    /// After calling this method and until [`SourceApi::aio_return`] returns
+    /// `Ok`, the structure may not be moved in memory.
+    fn submit(self: Pin<&mut Self>) -> nix::Result<()>;
+}
+
+/// A Mio source based on a single POSIX AIO operation.
+///
+/// The generic parameter specifies exactly which operation it is.  This struct
+/// implements `mio::Source`.  After cration, hse `mio::Source::register` to
+/// connect it to the event loop.
+#[derive(Debug)]
+pub struct Source<T>{inner: T}
+impl<T: Aio> Source<T> {
+    pin_utils::unsafe_pinned!(inner: T);
 
     fn _deregister_raw(&mut self) {
         let sigev = SigevNotify::SigevNone;
         self.inner.set_sigev_notify(sigev);
     }
 
-    /// Extra registration method needed by Tokio
-    #[cfg(feature = "tokio")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-    pub fn deregister_raw(&mut self) {
-        self._deregister_raw()
-    }
-
-    /// Retrieve the status of an in-progress or complete operation.
-    ///
-    /// Not usually needed, since `mio_aio` always uses kqueue for notification.
-    pub fn error(&mut self) -> nix::Result<()> {
-        self.inner.error()
-    }   // LCOV_EXCL_LINE
-
-    /// Asynchronously fsync a file.
-    pub fn fsync(&mut self, mode: AioFsyncMode) -> nix::Result<()> {
-        self.inner.fsync(mode)
-    }   // LCOV_EXCL_LINE
-
-    /// Asynchronously read from a file.
-    pub fn read(&mut self) -> nix::Result<()> {
-        self.inner.read()
-    }   // LCOV_EXCL_LINE
-
     fn _register_raw(&mut self, kq: RawFd, udata: usize) {
         let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
         self.inner.set_sigev_notify(sigev);
     }
+}
 
-    /// Extra registration method needed by Tokio
+impl<T: Aio> SourceApi for Source<T> {
+    type Output = T::Output;
+
+    fn aio_return(self: Pin<&mut Self>) -> nix::Result<Self::Output> {
+        self.inner().aio_return()
+    }
+
+    fn cancel(self: Pin<&mut Self>) -> nix::Result<aio::AioCancelStat> {
+        self.inner().cancel()
+    }
+
     #[cfg(feature = "tokio")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-    pub fn register_raw(&mut self, kq: RawFd, udata: usize) {
+    fn deregister_raw(&mut self) {
+        self._deregister_raw()
+    }
+
+    fn error(self: Pin<&mut Self>) -> nix::Result<()> {
+        self.inner().error()
+    }
+
+    fn in_progress(&self) -> bool {
+        self.inner.in_progress()
+    }
+
+    #[cfg(feature = "tokio")]
+    fn register_raw(&mut self, kq: RawFd, udata: usize) {
         self._register_raw(kq, udata)
     }
 
-    /// Asynchronously write to a file.
-    pub fn write(&mut self) -> nix::Result<()> {
-        self.inner.write()
-    }   // LCOV_EXCL_LINE
+    fn submit(self: Pin<&mut Self>) -> nix::Result<()> {
+        self.inner().submit()
+    }
 }
 
-impl<'a> Source for AioCb<'a> {
+impl<T: Aio> event::Source for Source<T> {
     fn register(
         &mut self,
         registry: &Registry,
@@ -151,302 +148,73 @@ impl<'a> Source for AioCb<'a> {
         self.register(registry, token, interests)
     }
 
-    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
+    fn deregister(
+        &mut self,
+        _registry: &Registry) -> io::Result<()>
+    {
         self._deregister_raw();
         Ok(())
     }
 }
 
-
-// LCOV_EXCL_START
-#[derive(Debug)]
-/// A collection of multiple asynchronous I/O operations
-pub struct LioCb<'a> {
-    inner: aio::LioCb<'a>,
-    sev: SigevNotify
-}
-// LCOV_EXCL_STOP
-
-impl<'a> LioCb<'a> {
-    fn _deregister_raw(&mut self) {
-        let sigev = SigevNotify::SigevNone;
-        self.sev = sigev;
-    }
-
-    /// Extra registration method needed by Tokio
-    #[cfg(feature = "tokio")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-    pub fn deregister_raw(&mut self) {
-        self._deregister_raw()
-    }
-
-    /// Translate the operating system's somewhat unhelpful error from
-    /// `lio_listio` into something more useful.
-    fn fix_submit_error(&mut self, e: nix::Result<()>) -> Result<(), LioError> {
-        match e {
-            Err(nix::Error::EAGAIN) |
-            Err(nix::Error::EIO) |
-            Err(nix::Error::EINTR) => {
-                // Unfortunately, FreeBSD uses EIO to indicate almost any
-                // problem with lio_listio.  We must examine every aiocb to
-                // determine which error to return
-                let mut n_error = 0;
-                let mut n_einprogress = 0;
-                let mut n_eagain = 0;
-                let mut n_ok = 0;
-                let errors = (0..self.inner.len())
-                .map(|i| {
-                    self.inner.error(i)
-                }).collect::<Vec<_>>();
-                for (i, e) in errors.iter().enumerate() {
-                    match e {
-                        Ok(()) => {
-                            n_ok += 1;
-                        },
-                        Err(Errno::EINPROGRESS) => {
-                            n_einprogress += 1;
-                        },
-                        Err(Errno::EAGAIN) => {
-                            n_eagain += 1;
-                        },
-                        Err(_) => {
-                            // Depending on whether the operation was actually
-                            // submitted or not, the kernel  may or may not
-                            // require us to call aio_return. But Nix requires
-                            // that we do, so it doesn't look like a resource
-                            // leak.
-                            let _ = self.inner.aio_return(i);
-                            n_error += 1;
-                        }
-                    }
-                }
-                if n_error > 0 {
-                    // Collect final status for every operation
-                    Err(LioError::EIO(errors))
-                } else if n_eagain > 0 && n_eagain < self.inner.len() {
-                    Err(LioError::EINCOMPLETE)
-                } else if n_eagain == self.inner.len() {
-                    Err(LioError::EAGAIN)
-                } else {
-                    panic!("lio_listio returned EIO for unknown reasons.  n_error={}, n_einprogress={}, n_eagain={}, and n_ok={}",
-                        n_error, n_einprogress, n_eagain, n_ok);
-                }
-            },
-            Ok(()) => Ok(()),
-            _ => panic!("lio_listio returned unhandled error {:?}", e)
-        }
-    }
-
-    fn _register_raw(&mut self, kq: RawFd, udata: usize) {
-        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
-        self.sev = sigev;
-    }
-
-    /// Extra registration method needed by Tokio
-    #[cfg(feature = "tokio")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-    pub fn register_raw(&mut self, kq: RawFd, udata: usize) {
-        self._register_raw(kq, udata)
-    }
-
-    /// Submit an `LioCb` to the `aio(4)` subsystem.
-    ///
-    /// If the return value is [`LioError::EAGAIN`], then no operations were
-    /// enqueued due to system resource limitations.  The application should
-    /// free up resources and try again.  If the return value is
-    /// [`LioError::EINCOMPLETE`], then _some_ operations were enqueued, but
-    /// others were not, due to system resource limitations.  The application
-    /// should wait for notification that the enqueued operations are complete,
-    /// then resubmit the others with [`resubmit`](#method.resubmit).  If the
-    /// return value is [`LioError::EIO`], then some operations have failed to
-    /// enqueue, and cannot be resubmitted.  The application should wait for
-    /// notification that the enqueued operations are complete, then examine the
-    /// result of each operation to determine the problem.
-    pub fn submit(&mut self) -> Result<(), LioError> {
-        let e = self.inner.listio(aio::LioMode::LIO_NOWAIT, self.sev);
-        self.fix_submit_error(e)
-    }
-
-    /// Resubmit an `LioCb` if it is incomplete.
-    ///
-    /// If [`submit`](#method.submit) returns `LioError::EINCOMPLETE`, then some
-    /// operations may not have been submitted.  This method will collect status
-    /// for any completed operations, then resubmit the others.
-    ///
-    /// [`lio_listio`](http://pubs.opengroup.org/onlinepubs/9699919799/functions/lio_listio.html)
-    pub fn resubmit(&mut self) -> Result<(), LioError> {
-        let e = self.inner.listio_resubmit(aio::LioMode::LIO_NOWAIT, self.sev);
-        self.fix_submit_error(e)
-    }
-
-    /// Consume an `LioCb` and collect its operations' results.
-    ///
-    /// An iterator over all operations' results will be supplied to the
-    /// callback function.
-    // We can't simply return an iterator using self.inner.aiocbs.into_iter(),
-    // because into_iter() moves elements, and aiocbs must reside at stable
-    // memory locations.  This arrangement, though odd, avoids any large memory
-    // allocations and still allows the caller to use an iterator adapter with
-    // the results.
-    pub fn into_results<F, R>(self, callback: F) -> R
-        where F: FnOnce(Box<dyn Iterator<Item=LioResult> + 'a>) -> R {
-
-        let mut inner = self.inner;
-        let iter = (0..inner.len()).map(move |i| {
-            let result = inner.aio_return(i);
-            LioResult{result }
-        });
-        callback(Box::new(iter))
+impl Source<aio::AioFsync> {
+    /// Asynchronously fsync a file.
+    pub fn fsync(fd: RawFd, mode: AioFsyncMode, prio: i32) -> Self {
+        let inner = aio::AioFsync::new(fd, mode, prio, SigevNotify::SigevNone);
+        Source{inner}
     }
 }
 
-impl<'a> Source for LioCb<'a> {
-    fn register(
-        &mut self,
-        registry: &Registry,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()> {
-        assert!(interests.is_lio());
-        let udata = usize::from(token);
-        let kq = registry.as_raw_fd();
-        self._register_raw(kq, udata);
-        Ok(())
-    }
-
-    fn reregister(
-        &mut self,
-        registry: &Registry,
-        token: Token,
-        interests: Interest,
-    ) -> io::Result<()> {
-        self.register(registry, token, interests)
-    }
-
-    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
-        self._deregister_raw();
-        Ok(())
+impl<'a> Source<aio::AioRead<'a>> {
+    /// Asynchronously read from a file.
+    pub fn read_at(
+        fd: RawFd,
+        offs: u64,
+        buf: &'a mut [u8],
+        prio: i32,
+    ) -> Self
+    {
+        let inner = aio::AioRead::new(fd, offs as off_t, buf, prio,
+                                      SigevNotify::SigevNone);
+        Source{inner}
     }
 }
 
-/// Used to construct [`LioCb`].
-///
-/// `LioCb` uses the builder pattern. An `LioCbBuilder` is the only way to
-/// construct an `LioCb`.
-///
-/// [`LioCb`](struct.LioCb.html)
-#[derive(Debug)]
-pub struct LioCbBuilder<'a>(aio::LioCbBuilder<'a>);
+impl<'a> Source<aio::AioReadv<'a>> {
+    /// Asynchronously read from a file to a scatter/gather list of buffers.
+    ///
+    /// Requires FreeBSD 13.0 or later.
+    pub fn readv_at(
+        fd: RawFd,
+        offs: u64,
+        bufs: &mut [IoSliceMut<'a>],
+        prio: i32,
+    ) -> Self
+    {
+        let inner = aio::AioReadv::new(fd, offs as off_t, bufs, prio,
+                                       SigevNotify::SigevNone);
+        Source{inner}
+    }
+}
 
-impl<'a> LioCbBuilder<'a> {
-    /// Add a new operation on a mutable slice
+impl<'a> Source<aio::AioWrite<'a>> {
+    /// Asynchronously write to a file.
+    pub fn write_at(fd: RawFd, offs: u64, buf: &'a [u8], prio: i32) -> Self {
+        let inner = aio::AioWrite::new(fd, offs as off_t, buf, prio,
+                                       SigevNotify::SigevNone);
+        Source{inner}
+    }
+}
+
+impl<'a> Source<aio::AioWritev<'a>> {
+    /// Asynchronously write to a file to a scatter/gather list of buffers.
     ///
-    /// # Arguments
-    ///
-    /// `fd` -      File descriptor the file to read from or write to.
-    /// `offset` -  Offset within the file to read from or write to.
-    /// `buf` -     Memory location for the data
-    /// `prio` -    I/O priority.  Not supported by all operating systems.
-    /// `opcode` -  Should be either `LIO_READ` or `LIO_WRITE`.
-    pub fn emplace_mut_slice(self, fd: RawFd, offset: u64,
-                         buf: &'a mut [u8], prio: i32, opcode: LioOpcode)
+    /// Requires FreeBSD 13.0 or later.
+    pub fn writev_at(fd: RawFd, offs: u64, bufs: &[IoSlice<'a>], prio: i32)
         -> Self
     {
-        LioCbBuilder(
-            self.0.emplace_mut_slice(
-                fd,
-                offset as off_t,
-                buf,
-                prio as c_int,
-                SigevNotify::SigevNone,
-                opcode
-            )
-        )
-    }
-
-    /// Add a new operation on an immutable mutable slice
-    ///
-    /// # Arguments
-    ///
-    /// `fd` -      File descriptor the file to read from or write to.
-    /// `offset` -  Offset within the file to read from or write to.
-    /// `buf` -     Memory location for the data
-    /// `prio` -    I/O priority.  Not supported by all operating systems.
-    /// `opcode` -  Should be either `LIO_READ` or `LIO_WRITE`.
-    pub fn emplace_slice(self, fd: RawFd, offset: u64,
-                         buf: &'a [u8], prio: i32, opcode: LioOpcode)
-        -> Self
-    {
-        LioCbBuilder(
-            self.0.emplace_slice(
-                fd,
-                offset as off_t,
-                buf,
-                prio as c_int,
-                SigevNotify::SigevNone,
-                opcode
-            )
-        )
-    }
-
-    /// Complete the build into an [`LioCb`], ready to use.
-    ///
-    /// The operating system requires a stable memory location once I/O is
-    /// submitted, so no new operations may be added after `finish`.
-    pub fn finish(self) -> LioCb<'a> {
-        LioCb {
-            inner: self.0.finish(),
-            sev: SigevNotify::SigevNone
-        }
-    }
-
-    /// Create a new `LioCbBuilder` with room for `capacity` operations.
-    pub fn with_capacity(capacity: usize) -> LioCbBuilder<'a> {
-        LioCbBuilder(aio::LioCbBuilder::with_capacity(capacity))
-    }
-}
-
-/// Error types that can be returned by
-/// [`LioCb::submit`](struct.LioCb.html#method.submit)
-#[derive(Clone, Debug, PartialEq)]
-pub enum LioError {
-    /// No operations were enqueued.  No notification will be forthcoming.
-    EAGAIN,
-    /// Some operations were enqueued, but not all.  Notification will be
-    /// delievered when the enqueued operations are all complete.
-    EINCOMPLETE,
-    /// Some operations failed.  The value is a vector of the status of each
-    /// operation.
-    EIO(Vec<Result<(), Errno>>)
-}
-
-impl LioError {
-    /// Conveniently destructure into an [`LioError::EIO`].
-    pub fn into_eio(self) -> Result<Vec<Result<(), Errno>>, Self> {
-        if let LioError::EIO(eio) = self {
-            Ok(eio)
-        } else {
-            Err(self)
-        }
-    }
-}
-
-#[cfg(test)]
-mod t {
-    use super::*;
-    use assert_impl::assert_impl;
-
-    // It's important that `AioCb` and `LioCb` be `Sync` and `Send`.  Most Tokio
-    // applications require it.
-    #[test]
-    fn aiocb_is_send_and_sync() {
-        assert_impl!(Send: AioCb);
-        assert_impl!(Sync: AioCb);
-    }
-
-    #[test]
-    fn liocb_is_send_and_sync() {
-        assert_impl!(Send: LioCb);
-        assert_impl!(Sync: LioCb);
+        let inner = aio::AioWritev::new(fd, offs as off_t, bufs, prio,
+                                        SigevNotify::SigevNone);
+        Source{inner}
     }
 }
