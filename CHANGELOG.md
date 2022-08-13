@@ -10,6 +10,8 @@
     or later.
   (#[29](https://github.com/asomers/mio-aio/pull/29))
 
+- Updated Nix to 0.25.0.
+
 ## [0.7.0] - 2022-04-21
 
 ### Changed
