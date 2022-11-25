@@ -6,7 +6,7 @@ use mio::{Events, Interest, Poll, Token};
 use mio_aio::SourceApi;
 use tempfile::tempfile;
 use std::os::unix::io::AsRawFd;
-use std::io::{IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write};
+use std::io::{IoSlice, IoSliceMut, Read, Seek, Write};
 use std::ops::Deref;
 
 
@@ -212,7 +212,7 @@ mod aio_write {
 
         assert!(aiow.as_mut().error().is_ok());
         assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
-        f.seek(SeekFrom::Start(0)).unwrap();
+        f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert!(len == wbuf.len());
         assert!(rbuf == wbuf.deref().deref());
@@ -249,7 +249,7 @@ mod aio_writev {
 
         assert!(aiow.as_mut().error().is_ok());
         assert_eq!(aiow.as_mut().aio_return().unwrap(), expected.len());
-        f.seek(SeekFrom::Start(0)).unwrap();
+        f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert_eq!(len, expected.len());
         assert_eq!(expected, &rbuf[..]);
