@@ -12,6 +12,9 @@
 
 - Updated Nix to 0.25.0.
 
+- Raised MSRV to 1.55.0
+  (#[33](https://github.com/asomers/mio-aio/pull/33))
+
 ## [0.7.0] - 2022-04-21
 
 ### Changed
