@@ -10,10 +10,8 @@
     or later.
   (#[29](https://github.com/asomers/mio-aio/pull/29))
 
-- Updated Nix to 0.25.0.
-
-- Raised MSRV to 1.55.0
-  (#[33](https://github.com/asomers/mio-aio/pull/33))
+- Updated Nix to 0.26.1.  This raises MSRV to 1.56.1.
+  (#[34](https://github.com/asomers/mio-aio/pull/34))
 
 ## [0.7.0] - 2022-04-21
 
