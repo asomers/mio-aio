@@ -35,7 +35,7 @@ log = "0.3.4"
 mio = { version = "0.8.0", features = ["os-poll"] }
 nix = { version = "0.26.1", default-features = false, features = ["aio", "feature"] }
 sysctl = "0.1"
-tempfile = "3.0"
+tempfile = "3.4"
 
 [[test]]
 name = "functional"
