@@ -5,7 +5,7 @@ extern crate tempfile;
 use mio::{Events, Interest, Poll, Token};
 use mio_aio::SourceApi;
 use tempfile::tempfile;
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::AsFd;
 use std::io::{IoSlice, IoSliceMut, Read, Seek, Write};
 use std::ops::Deref;
 
@@ -19,7 +19,7 @@ pub fn test_aio_cancel() {
 
     let mut poll = Poll::new().unwrap();
     let mut events = Events::with_capacity(1024);
-    let mut aiocb = mio_aio::WriteAt::write_at(f.as_raw_fd(),
+    let mut aiocb = mio_aio::WriteAt::write_at(f.as_fd(),
         0,   //offset
         WBUF,
         0,   //priority
@@ -54,7 +54,7 @@ mod aio_fsync {
         let mut events = Events::with_capacity(1024);
 
         let mut aiof = mio_aio::Source::fsync(
-            f.as_raw_fd(),
+            f.as_fd(),
             mio_aio::AioFsyncMode::O_SYNC,
             0
         );
@@ -90,7 +90,7 @@ mod aio_read {
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(1024);
         {
-            let mut aior = mio_aio::Source::read_at(f.as_raw_fd(),
+            let mut aior = mio_aio::Source::read_at(f.as_fd(),
                 2,   //offset
                 &mut rbuf,
                 0,   //priority
@@ -133,7 +133,7 @@ mod aio_readv {
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(1024);
         {
-            let mut aior = mio_aio::Source::readv_at(f.as_raw_fd(),
+            let mut aior = mio_aio::Source::readv_at(f.as_fd(),
                 2,   //offset
                 &mut rbufs,
                 0,   //priority
@@ -170,7 +170,7 @@ mod aio_write {
 
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(1024);
-        let mut aiow = mio_aio::Source::write_at(f.as_raw_fd(), 0, &wbuf, 0);
+        let mut aiow = mio_aio::Source::write_at(f.as_fd(), 0, &wbuf, 0);
         poll.registry().register(&mut aiow, UDATA, Interest::AIO)
             .expect("registration failed");
         let mut aiow = Box::pin(aiow);
@@ -197,26 +197,28 @@ mod aio_write {
 
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(1024);
-        let mut aiow = mio_aio::Source::write_at(f.as_raw_fd(), 0, &wbuf, 0);
-        poll.registry().register(&mut aiow, UDATA, Interest::AIO)
-            .expect("registration failed");
-        let mut aiow = Box::pin(aiow);
+        {
+            let mut aiow = mio_aio::Source::write_at(f.as_fd(), 0, &wbuf, 0);
+            poll.registry().register(&mut aiow, UDATA, Interest::AIO)
+                .expect("registration failed");
+            let mut aiow = Box::pin(aiow);
 
-        aiow.as_mut().submit().unwrap();
+            aiow.as_mut().submit().unwrap();
 
-        poll.poll(&mut events, None).expect("poll failed");
-        let mut it = events.iter();
-        let ev = it.next().unwrap();
-        assert_eq!(ev.token(), UDATA);
-        assert!(ev.is_aio());
+            poll.poll(&mut events, None).expect("poll failed");
+            let mut it = events.iter();
+            let ev = it.next().unwrap();
+            assert_eq!(ev.token(), UDATA);
+            assert!(ev.is_aio());
 
-        assert!(aiow.as_mut().error().is_ok());
-        assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+            assert!(aiow.as_mut().error().is_ok());
+            assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+            assert!(it.next().is_none());
+        }
         f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert!(len == wbuf.len());
         assert!(rbuf == wbuf.deref());
-        assert!(it.next().is_none());
     }
 }
 
@@ -234,25 +236,27 @@ mod aio_writev {
 
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(1024);
-        let mut aiow = mio_aio::Source::writev_at(f.as_raw_fd(), 0, &wbufs, 0);
-        poll.registry().register(&mut aiow, UDATA, Interest::AIO)
-            .expect("registration failed");
-        let mut aiow = Box::pin(aiow);
+        {
+            let mut aiow = mio_aio::Source::writev_at(f.as_fd(), 0, &wbufs, 0);
+            poll.registry().register(&mut aiow, UDATA, Interest::AIO)
+                .expect("registration failed");
+            let mut aiow = Box::pin(aiow);
 
-        aiow.as_mut().submit().unwrap();
+            aiow.as_mut().submit().unwrap();
 
-        poll.poll(&mut events, None).expect("poll failed");
-        let mut it = events.iter();
-        let ev = it.next().unwrap();
-        assert_eq!(ev.token(), UDATA);
-        assert!(ev.is_aio());
+            poll.poll(&mut events, None).expect("poll failed");
+            let mut it = events.iter();
+            let ev = it.next().unwrap();
+            assert_eq!(ev.token(), UDATA);
+            assert!(ev.is_aio());
 
-        assert!(aiow.as_mut().error().is_ok());
-        assert_eq!(aiow.as_mut().aio_return().unwrap(), expected.len());
+            assert!(aiow.as_mut().error().is_ok());
+            assert_eq!(aiow.as_mut().aio_return().unwrap(), expected.len());
+            assert!(it.next().is_none());
+        }
         f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert_eq!(len, expected.len());
         assert_eq!(expected, &rbuf[..]);
-        assert!(it.next().is_none());
     }
 }

@@ -6,6 +6,7 @@ authors = ["Alan Somers <asomers@gmail.com>"]
 license = "MIT/Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/asomers/mio-aio"
+rust-version = "1.69"
 description = """
 POSIX AIO bindings for mio
 """
@@ -26,13 +27,13 @@ tokio = []
 
 [dependencies]
 mio = "0.8.11"
-nix = {version = "0.27.0", default-features = false, features = ["aio", "event"] }
+nix = {version = "0.29.0", default-features = false, features = ["aio", "event"] }
 pin-utils = "0.1.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
 mio = { version = "0.8.11", features = ["os-poll"] }
-nix = {version = "0.27.0", default-features = false, features = ["aio", "event", "feature"] }
+nix = {version = "0.29.0", default-features = false, features = ["aio", "event", "feature"] }
 sysctl = "0.1"
 tempfile = "3.4"
 
