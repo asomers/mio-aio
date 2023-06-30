@@ -111,7 +111,7 @@ mod aio_read {
             assert_eq!(aior.as_mut().aio_return().unwrap(), EXPECT.len());
             assert!(it.next().is_none());
         }
-        assert!(rbuf.deref().deref() == EXPECT);
+        assert!(rbuf.deref() == EXPECT);
     }
 }
 
@@ -215,7 +215,7 @@ mod aio_write {
         f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert!(len == wbuf.len());
-        assert!(rbuf == wbuf.deref().deref());
+        assert!(rbuf == wbuf.deref());
         assert!(it.next().is_none());
     }
 }
