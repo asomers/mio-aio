@@ -12,12 +12,11 @@ task:
         VERSION: nightly
     - name: FreeBSD 13 amd64 MSRV
       env:
-        VERSION: 1.56.1
+        VERSION: 1.65.0
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
     - sh rustup.sh -y --default-toolchain $VERSION
-    - $HOME/.cargo/bin/rustc --version | grep -q "1.56.1" && cp Cargo.lock.msrv Cargo.lock
     # aio on ufs is considered unsafe
     - sysctl vfs.aio.enable_unsafe=1
   cargo_cache:

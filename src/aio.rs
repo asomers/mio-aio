@@ -14,6 +14,7 @@ use nix::{
     libc::off_t,
     sys::{
         aio::{self, Aio},
+        event::EventFlag,
         signal::SigevNotify
     }
 };
@@ -73,7 +74,7 @@ pub trait SourceApi {
 /// A Mio source based on a single POSIX AIO operation.
 ///
 /// The generic parameter specifies exactly which operation it is.  This struct
-/// implements `mio::Source`.  After cration, hse `mio::Source::register` to
+/// implements `mio::Source`.  After cration, use `mio::Source::register` to
 /// connect it to the event loop.
 #[derive(Debug)]
 pub struct Source<T>{inner: T}
@@ -86,7 +87,11 @@ impl<T: Aio> Source<T> {
     }
 
     fn _register_raw(&mut self, kq: RawFd, udata: usize) {
-        let sigev = SigevNotify::SigevKevent{kq, udata: udata as isize};
+        let sigev = SigevNotify::SigevKeventFlags{
+            kq,
+            udata: udata as isize,
+            flags: EventFlag::EV_ONESHOT
+        };
         self.inner.set_sigev_notify(sigev);
     }
 }
