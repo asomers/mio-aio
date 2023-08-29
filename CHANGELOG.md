@@ -10,8 +10,15 @@
     or later.
   (#[29](https://github.com/asomers/mio-aio/pull/29))
 
-- Updated Nix to 0.26.1.  This raises MSRV to 1.56.1.
-  (#[34](https://github.com/asomers/mio-aio/pull/34))
+- Updated Nix to 0.27.0.  This raises MSRV to 1.65.0.
+  (#[38](https://github.com/asomers/mio-aio/pull/38))
+
+### Fixed
+
+- Now sets `EV_ONESHOT`, allowing use in multithreaded contexts where the
+  thread that receives notification might not be the thread that calls
+  `aio_return`.
+  (#[38](https://github.com/asomers/mio-aio/pull/38))
 
 ## [0.7.0] - 2022-04-21
 
