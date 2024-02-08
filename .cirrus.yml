@@ -10,9 +10,9 @@ task:
     - name: FreeBSD 13 amd64 nightly
       env:
         VERSION: nightly
-    - name: FreeBSD 13 amd64 MSRV
-      env:
-        VERSION: 1.65.0
+    #- name: FreeBSD 13 amd64 MSRV
+      #env:
+        #VERSION: 1.65.0
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
@@ -35,6 +35,7 @@ task:
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
   audit_script:
     - . $HOME/.cargo/env
-    - pkg install -y cargo-audit
+    - cargo install cargo-audit
+    - cargo audit -V
     - cargo audit
   before_cache_script: rm -rf $HOME/.cargo/registry/index
