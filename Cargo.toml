@@ -25,13 +25,13 @@ default = []
 tokio = []
 
 [dependencies]
-mio = "0.8.0"
+mio = "0.8.11"
 nix = {version = "0.27.0", default-features = false, features = ["aio", "event"] }
 pin-utils = "0.1.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
-mio = { version = "0.8.0", features = ["os-poll"] }
+mio = { version = "0.8.11", features = ["os-poll"] }
 nix = {version = "0.27.0", default-features = false, features = ["aio", "event", "feature"] }
 sysctl = "0.1"
 tempfile = "3.4"
