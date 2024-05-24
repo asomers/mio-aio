@@ -1,5 +1,5 @@
 freebsd_instance:
-  image: freebsd-13-2-release-amd64
+  image: freebsd-13-3-release-amd64
 
 task:
   env:
@@ -35,6 +35,7 @@ task:
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
   audit_script:
     - . $HOME/.cargo/env
-    - pkg install -y cargo-audit
+    # install ca_root_nss due to https://github.com/rustsec/rustsec/issues/11
+    - pkg install -y ca_root_nss cargo-audit
     - cargo audit
   before_cache_script: rm -rf $HOME/.cargo/registry/index

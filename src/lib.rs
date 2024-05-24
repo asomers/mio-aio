@@ -8,7 +8,7 @@
 //! # See Also
 //!
 //! * [`tokio-file`](https://docs.rs/tokio-file) - Tokio bindings that work atop
-//! this crate.  Much more useful to the typical user.
+//!   this crate.  Much more useful to the typical user.
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
