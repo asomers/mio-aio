@@ -1,7 +1,7 @@
 // vim: tw=80
 use std::{
     io::{self, IoSlice, IoSliceMut},
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::io::{AsRawFd, BorrowedFd, RawFd},
     pin::Pin
 };
 use mio::{
@@ -26,7 +26,7 @@ pub type ReadAt<'a> = Source<aio::AioRead<'a>>;
 /// Return type of [`Source::readv_at`]
 pub type ReadvAt<'a> = Source<aio::AioReadv<'a>>;
 /// Return type of [`Source::fsync`]
-pub type Fsync = Source<aio::AioFsync>;
+pub type Fsync<'a> = Source<aio::AioFsync<'a>>;
 /// Return type of [`Source::write_at`]
 pub type WriteAt<'a> = Source<aio::AioWrite<'a>>;
 /// Return type of [`Source::writev_at`]
@@ -74,7 +74,7 @@ pub trait SourceApi {
 /// A Mio source based on a single POSIX AIO operation.
 ///
 /// The generic parameter specifies exactly which operation it is.  This struct
-/// implements `mio::Source`.  After cration, use `mio::Source::register` to
+/// implements `mio::Source`.  After creation, use `mio::Source::register` to
 /// connect it to the event loop.
 #[derive(Debug)]
 pub struct Source<T>{inner: T}
@@ -162,9 +162,9 @@ impl<T: Aio> event::Source for Source<T> {
     }
 }
 
-impl Source<aio::AioFsync> {
+impl<'a> Source<aio::AioFsync<'a>> {
     /// Asynchronously fsync a file.
-    pub fn fsync(fd: RawFd, mode: AioFsyncMode, prio: i32) -> Self {
+    pub fn fsync(fd: BorrowedFd<'a>, mode: AioFsyncMode, prio: i32) -> Self {
         let inner = aio::AioFsync::new(fd, mode, prio, SigevNotify::SigevNone);
         Source{inner}
     }
@@ -173,7 +173,7 @@ impl Source<aio::AioFsync> {
 impl<'a> Source<aio::AioRead<'a>> {
     /// Asynchronously read from a file.
     pub fn read_at(
-        fd: RawFd,
+        fd: BorrowedFd<'a>,
         offs: u64,
         buf: &'a mut [u8],
         prio: i32,
@@ -190,7 +190,7 @@ impl<'a> Source<aio::AioReadv<'a>> {
     ///
     /// Requires FreeBSD 13.0 or later.
     pub fn readv_at(
-        fd: RawFd,
+        fd: BorrowedFd<'a>,
         offs: u64,
         bufs: &mut [IoSliceMut<'a>],
         prio: i32,
@@ -204,7 +204,7 @@ impl<'a> Source<aio::AioReadv<'a>> {
 
 impl<'a> Source<aio::AioWrite<'a>> {
     /// Asynchronously write to a file.
-    pub fn write_at(fd: RawFd, offs: u64, buf: &'a [u8], prio: i32) -> Self {
+    pub fn write_at(fd: BorrowedFd<'a>, offs: u64, buf: &'a [u8], prio: i32) -> Self {
         let inner = aio::AioWrite::new(fd, offs as off_t, buf, prio,
                                        SigevNotify::SigevNone);
         Source{inner}
@@ -215,7 +215,7 @@ impl<'a> Source<aio::AioWritev<'a>> {
     /// Asynchronously write to a file to a scatter/gather list of buffers.
     ///
     /// Requires FreeBSD 13.0 or later.
-    pub fn writev_at(fd: RawFd, offs: u64, bufs: &[IoSlice<'a>], prio: i32)
+    pub fn writev_at(fd: BorrowedFd<'a>, offs: u64, bufs: &[IoSlice<'a>], prio: i32)
         -> Self
     {
         let inner = aio::AioWritev::new(fd, offs as off_t, bufs, prio,

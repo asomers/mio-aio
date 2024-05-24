@@ -1,3 +1,13 @@
+## [Unreleased] - [ReleaseDate]
+
+### Changed
+
+- All types now use I/O Safety.  This means that they take `&BorrowedFd<_>`
+  arguments instead of `RawFd` arguments.  This has serious repurcussions for
+  consumers who intend to create Futures that have `'static` lifetimes.  It all
+  updates the nix dependency to 0.29.0 and updates the MSRV to 1.69.0.
+  (#[42](https://github.com/asomers/mio-aio/pull/42))
+
 ## [0.8.0] - 2023-08-29
 
 ### Changed
