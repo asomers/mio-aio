@@ -14,6 +14,14 @@
 
 mod aio;
 
-pub use aio::{AioFsyncMode, Source, Fsync, SourceApi, ReadAt, ReadvAt, WriteAt,
-    WritevAt};
+pub use aio::{
+    AioFsyncMode,
+    Fsync,
+    ReadAt,
+    ReadvAt,
+    Source,
+    SourceApi,
+    WriteAt,
+    WritevAt,
+};
 pub use nix::errno::Errno;

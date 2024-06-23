@@ -38,4 +38,7 @@ task:
     # install ca_root_nss due to https://github.com/rustsec/rustsec/issues/11
     - pkg install -y ca_root_nss cargo-audit
     - cargo audit
+  fmt_script:
+    - . $HOME/.cargo/env
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION fmt -- --check; fi
   before_cache_script: rm -rf $HOME/.cargo/registry/index
