@@ -2,24 +2,19 @@
 use std::{
     io::{self, IoSlice, IoSliceMut},
     os::unix::io::{AsRawFd, BorrowedFd, RawFd},
-    pin::Pin
+    pin::Pin,
 };
-use mio::{
-    Interest,
-    Registry,
-    Token,
-    event,
-};
+
+use mio::{event, Interest, Registry, Token};
+pub use nix::sys::aio::AioFsyncMode;
 use nix::{
     libc::off_t,
     sys::{
         aio::{self, Aio},
         event::EventFlag,
-        signal::SigevNotify
-    }
+        signal::SigevNotify,
+    },
 };
-
-pub use nix::sys::aio::AioFsyncMode;
 
 /// Return type of [`Source::read_at`]
 pub type ReadAt<'a> = Source<aio::AioRead<'a>>;
@@ -77,7 +72,9 @@ pub trait SourceApi {
 /// implements `mio::Source`.  After creation, use `mio::Source::register` to
 /// connect it to the event loop.
 #[derive(Debug)]
-pub struct Source<T>{inner: T}
+pub struct Source<T> {
+    inner: T,
+}
 impl<T: Aio> Source<T> {
     pin_utils::unsafe_pinned!(inner: T);
 
@@ -87,10 +84,10 @@ impl<T: Aio> Source<T> {
     }
 
     fn _register_raw(&mut self, kq: RawFd, udata: usize) {
-        let sigev = SigevNotify::SigevKeventFlags{
+        let sigev = SigevNotify::SigevKeventFlags {
             kq,
             udata: udata as isize,
-            flags: EventFlag::EV_ONESHOT
+            flags: EventFlag::EV_ONESHOT,
         };
         self.inner.set_sigev_notify(sigev);
     }
@@ -153,10 +150,7 @@ impl<T: Aio> event::Source for Source<T> {
         self.register(registry, token, interests)
     }
 
-    fn deregister(
-        &mut self,
-        _registry: &Registry) -> io::Result<()>
-    {
+    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
         self._deregister_raw();
         Ok(())
     }
@@ -166,7 +160,7 @@ impl<'a> Source<aio::AioFsync<'a>> {
     /// Asynchronously fsync a file.
     pub fn fsync(fd: BorrowedFd<'a>, mode: AioFsyncMode, prio: i32) -> Self {
         let inner = aio::AioFsync::new(fd, mode, prio, SigevNotify::SigevNone);
-        Source{inner}
+        Source { inner }
     }
 }
 
@@ -177,11 +171,15 @@ impl<'a> Source<aio::AioRead<'a>> {
         offs: u64,
         buf: &'a mut [u8],
         prio: i32,
-    ) -> Self
-    {
-        let inner = aio::AioRead::new(fd, offs as off_t, buf, prio,
-                                      SigevNotify::SigevNone);
-        Source{inner}
+    ) -> Self {
+        let inner = aio::AioRead::new(
+            fd,
+            offs as off_t,
+            buf,
+            prio,
+            SigevNotify::SigevNone,
+        );
+        Source { inner }
     }
 }
 
@@ -194,20 +192,34 @@ impl<'a> Source<aio::AioReadv<'a>> {
         offs: u64,
         bufs: &mut [IoSliceMut<'a>],
         prio: i32,
-    ) -> Self
-    {
-        let inner = aio::AioReadv::new(fd, offs as off_t, bufs, prio,
-                                       SigevNotify::SigevNone);
-        Source{inner}
+    ) -> Self {
+        let inner = aio::AioReadv::new(
+            fd,
+            offs as off_t,
+            bufs,
+            prio,
+            SigevNotify::SigevNone,
+        );
+        Source { inner }
     }
 }
 
 impl<'a> Source<aio::AioWrite<'a>> {
     /// Asynchronously write to a file.
-    pub fn write_at(fd: BorrowedFd<'a>, offs: u64, buf: &'a [u8], prio: i32) -> Self {
-        let inner = aio::AioWrite::new(fd, offs as off_t, buf, prio,
-                                       SigevNotify::SigevNone);
-        Source{inner}
+    pub fn write_at(
+        fd: BorrowedFd<'a>,
+        offs: u64,
+        buf: &'a [u8],
+        prio: i32,
+    ) -> Self {
+        let inner = aio::AioWrite::new(
+            fd,
+            offs as off_t,
+            buf,
+            prio,
+            SigevNotify::SigevNone,
+        );
+        Source { inner }
     }
 }
 
@@ -215,11 +227,19 @@ impl<'a> Source<aio::AioWritev<'a>> {
     /// Asynchronously write to a file to a scatter/gather list of buffers.
     ///
     /// Requires FreeBSD 13.0 or later.
-    pub fn writev_at(fd: BorrowedFd<'a>, offs: u64, bufs: &[IoSlice<'a>], prio: i32)
-        -> Self
-    {
-        let inner = aio::AioWritev::new(fd, offs as off_t, bufs, prio,
-                                        SigevNotify::SigevNone);
-        Source{inner}
+    pub fn writev_at(
+        fd: BorrowedFd<'a>,
+        offs: u64,
+        bufs: &[IoSlice<'a>],
+        prio: i32,
+    ) -> Self {
+        let inner = aio::AioWritev::new(
+            fd,
+            offs as off_t,
+            bufs,
+            prio,
+            SigevNotify::SigevNone,
+        );
+        Source { inner }
     }
 }
