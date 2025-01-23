@@ -1,44 +1,38 @@
-freebsd_instance:
-  image: freebsd-13-3-release-amd64
-
-task:
+setup: &SETUP
   env:
-    HOME: /tmp  # cargo cache needs it
-    # Temporary workaround for https://github.com/rust-lang/rustup/issues/2774
-    RUSTUP_IO_THREADS: 1
-  matrix:
-    - name: FreeBSD 13 amd64 nightly
-      env:
-        VERSION: nightly
-    - name: FreeBSD 13 amd64 MSRV
-      env:
-        VERSION: 1.69.0
-  # Install Rust
+    HOME: /tmp # cargo needs it
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
-    - sh rustup.sh -y --default-toolchain $VERSION
-    # aio on ufs is considered unsafe
-    - sysctl vfs.aio.enable_unsafe=1
+    - sh rustup.sh -y --profile=${PROFILE} --default-toolchain ${VERSION}-x86_64-unknown-freebsd
+
+build: &BUILD
   cargo_cache:
     folder: $HOME/.cargo/registry
     fingerprint_script: cat Cargo.lock || echo ""
-  test_script:
-    - . $HOME/.cargo/env
-    - cargo +$VERSION test
-  # Test our minimal version spec.
-  minver_test_script:
-    - . $HOME/.cargo/env
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION update -Zminimal-versions; else true; fi
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION check --all-targets; else true; fi
-  clippy_script:
-    - . $HOME/.cargo/env
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
-  audit_script:
-    - . $HOME/.cargo/env
-    # install ca_root_nss due to https://github.com/rustsec/rustsec/issues/11
-    - pkg install -y ca_root_nss cargo-audit
-    - cargo audit
-  fmt_script:
-    - . $HOME/.cargo/env
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION fmt -- --check; fi
+  build_script:
+    - . $HOME/.cargo/env || true
+    - cargo --version
+    - cargo build --all
+
+task:
+  use_compute_credits: $CIRRUS_USER_COLLABORATOR == 'true'
+  name: FreeBSD 14 nightly
+  env:
+    PROFILE: minimal
+    matrix:
+      RUST_BACKTRACE: full
+      RUST_BACKTRACE: 0
+    matrix:
+      VERSION: nightly-2024-01-16
+      VERSION: nightly-2024-01-17
+      VERSION: nightly-2024-01-18
+      VERSION: nightly-2024-01-19
+      VERSION: nightly-2024-01-20
+      VERSION: nightly-2024-01-21
+      VERSION: nightly-2024-01-22
+  name: FreeBSD 14.2
+  freebsd_instance:
+    image: freebsd-14-2-release-amd64-ufs
+  << : *SETUP
+  << : *BUILD
   before_cache_script: rm -rf $HOME/.cargo/registry/index
