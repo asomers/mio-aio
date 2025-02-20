@@ -11,6 +11,9 @@
 //!   this crate.  Much more useful to the typical user.
 #![deny(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// This lint is unhelpful.  See
+// https://github.com/rust-lang/rust-clippy/discussions/14256
+#![allow(clippy::doc_overindented_list_items)]
 
 mod aio;
 
