@@ -25,11 +25,6 @@ task:
   test_script:
     - . $HOME/.cargo/env
     - cargo +$VERSION test
-  # Test our minimal version spec.
-  minver_test_script:
-    - . $HOME/.cargo/env
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION update -Zminimal-versions; else true; fi
-    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION check --all-targets; else true; fi
   clippy_script:
     - . $HOME/.cargo/env
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
@@ -38,6 +33,11 @@ task:
     # install ca_root_nss due to https://github.com/rustsec/rustsec/issues/11
     - pkg install -y ca_root_nss cargo-audit
     - cargo audit
+  # Test our minimal version spec.
+  minver_test_script:
+    - . $HOME/.cargo/env
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION update -Zdirect-minimal-versions; else true; fi
+    - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION check --all-targets; else true; fi
   fmt_script:
     - . $HOME/.cargo/env
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION fmt -- --check; fi
