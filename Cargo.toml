@@ -34,7 +34,7 @@ pin-utils = "0.1.0"
 assert-impl = "0.1"
 mio = { version = "0.8.11", features = ["os-poll"] }
 nix = {version = "0.29.0", default-features = false, features = ["aio", "event", "feature"] }
-sysctl = "0.1"
+sysctl = "0.6"
 tempfile = "3.4"
 
 [[test]]
