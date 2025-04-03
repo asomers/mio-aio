@@ -1,7 +1,3 @@
-extern crate mio;
-extern crate mio_aio;
-extern crate tempfile;
-
 use std::{
     io::{IoSlice, IoSliceMut, Read, Seek, Write},
     ops::Deref,

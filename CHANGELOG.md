@@ -1,3 +1,10 @@
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Updated mio dependency to 1.0.  This also raises MSRV to 1.70.0
+  (#[49](https://github.com/asomers/mio-aio/pull/49))
+
 ## [0.9.0] - [2024-05-24]
 
 ### Changed
