@@ -5,7 +5,7 @@ File I/O can be seamlessly mixed with network I/O and timers in the same event
 loop.
 
 [![Build Status](https://api.cirrus-ci.com/github/asomers/mio-aio.svg)](https://cirrus-ci.com/github/asomers/mio-aio)
-[mio]: https://github.com/carllerche/mio
+[mio]: https://github.com/asomers/mio-aio
 
 ```toml
 # Cargo.toml
