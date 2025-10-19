@@ -2,8 +2,9 @@
 
 ### Changed
 
-- Updated mio dependency to 1.0.  This also raises MSRV to 1.70.0
+- Updated mio dependency to 1.0.  This also raises MSRV to 1.71.0
   (#[49](https://github.com/asomers/mio-aio/pull/49))
+  (#[50](https://github.com/asomers/mio-aio/pull/50))
 
 ## [0.9.0] - [2024-05-24]
 
