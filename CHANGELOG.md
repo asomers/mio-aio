@@ -1,3 +1,12 @@
+## [Unrelease] - ReleaseDate
+
+### Changed
+
+- The `SourceApi::register_raw` method now takes a `BorrowedFd` argument
+  instead of a `RawFd`.  This is a breaking change.  This also raises the Nix
+  dependency to `>=0.30.0,<0.32.0` .
+  (#[51](https://github.com/asomers/mio-aio/pull/51))
+
 ## [1.0.0] - 2025-04-03
 
 ### Changed
