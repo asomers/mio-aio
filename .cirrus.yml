@@ -1,18 +1,10 @@
 freebsd_instance:
-  image: freebsd-13-5-release-amd64
+  image: freebsd-14-4-release-amd64-ufs
 
-task:
+setup: &SETUP
   env:
     HOME: /tmp  # cargo cache needs it
-    # Temporary workaround for https://github.com/rust-lang/rustup/issues/2774
-    RUSTUP_IO_THREADS: 1
-  matrix:
-    - name: FreeBSD 13 amd64 nightly
-      env:
-        VERSION: nightly
-    - name: FreeBSD 13 amd64 MSRV
-      env:
-        VERSION: 1.71.0
+    RUST_BACKTRACE: full  # Better info for debugging test failures
   # Install Rust
   setup_script:
     - fetch https://sh.rustup.rs -o rustup.sh
@@ -22,6 +14,25 @@ task:
   cargo_cache:
     folder: $HOME/.cargo/registry
     fingerprint_script: cat Cargo.lock || echo ""
+
+# Check that we compile with the MSRV.  But the tests don't need to.
+msrv_task:
+  name: FreeBSD 14 amd64 MSRV
+  env:
+    VERSION: 1.71.0
+  << : *SETUP
+  check_script:
+    - . $HOME/.cargo/env
+    - cargo +$VERSION build
+  before_cache_script: rm -rf $HOME/.cargo/registry/index
+
+nightly_task:
+  name: FreeBSD 14 amd64 nightly
+  env:
+    VERSION: nightly
+  << : *SETUP
+  nightly_setup_script:
+    pkg install -y cargo-audit
   test_script:
     - . $HOME/.cargo/env
     - cargo +$VERSION test
@@ -30,8 +41,6 @@ task:
     - if [ "$VERSION" = "nightly" ]; then cargo +$VERSION clippy --all-targets -- -D warnings; else true; fi
   audit_script:
     - . $HOME/.cargo/env
-    # install ca_root_nss due to https://github.com/rustsec/rustsec/issues/11
-    - pkg install -y ca_root_nss cargo-audit
     - cargo audit
   # Test our minimal version spec.
   minver_test_script:

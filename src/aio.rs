@@ -1,7 +1,7 @@
 // vim: tw=80
 use std::{
     io::{self, IoSlice, IoSliceMut},
-    os::unix::io::{AsRawFd, BorrowedFd, RawFd},
+    os::{fd::AsFd, unix::io::BorrowedFd},
     pin::Pin,
 };
 
@@ -11,7 +11,7 @@ use nix::{
     libc::off_t,
     sys::{
         aio::{self, Aio},
-        event::EventFlag,
+        event::EvFlags,
         signal::SigevNotify,
     },
 };
@@ -57,7 +57,7 @@ pub trait SourceApi {
     /// Extra registration method needed by Tokio
     #[cfg(feature = "tokio")]
     #[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
-    fn register_raw(&mut self, kq: RawFd, udata: usize);
+    fn register_raw(&mut self, kq: BorrowedFd, udata: usize);
 
     /// Actually start the I/O operation.
     ///
@@ -83,11 +83,11 @@ impl<T: Aio> Source<T> {
         self.inner.set_sigev_notify(sigev);
     }
 
-    fn _register_raw(&mut self, kq: RawFd, udata: usize) {
+    fn _register_raw<'r>(&'r mut self, kq: BorrowedFd<'r>, udata: usize) {
         let sigev = SigevNotify::SigevKeventFlags {
             kq,
             udata: udata as isize,
-            flags: EventFlag::EV_ONESHOT,
+            flags: EvFlags::EV_ONESHOT,
         };
         self.inner.set_sigev_notify(sigev);
     }
@@ -118,7 +118,7 @@ impl<T: Aio> SourceApi for Source<T> {
     }
 
     #[cfg(feature = "tokio")]
-    fn register_raw(&mut self, kq: RawFd, udata: usize) {
+    fn register_raw(&mut self, kq: BorrowedFd, udata: usize) {
         self._register_raw(kq, udata)
     }
 
@@ -136,7 +136,7 @@ impl<T: Aio> event::Source for Source<T> {
     ) -> io::Result<()> {
         assert!(interests.is_aio());
         let udata = usize::from(token);
-        let kq = registry.as_raw_fd();
+        let kq = registry.as_fd();
         self._register_raw(kq, udata);
         Ok(())
     }
