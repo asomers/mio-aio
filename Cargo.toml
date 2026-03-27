@@ -16,6 +16,7 @@ documentation = "https://docs.rs/mio-aio"
 include = ["src/**/*", "LICENSE-*", "README.md", "CHANGELOG.md"]
 
 [package.metadata.docs.rs]
+all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 targets = [
   "x86_64-unknown-freebsd",
