@@ -4,7 +4,7 @@ A library for integrating file I/O with [mio], using POSIX AIO and kqueue.
 File I/O can be seamlessly mixed with network I/O and timers in the same event
 loop.
 
-[![Build Status](https://api.cirrus-ci.com/github/asomers/mio-aio.svg)](https://cirrus-ci.com/github/asomers/mio-aio)
+[![Build Status](https://github.com/asomers/mio-aio/workflows/CI/badge.svg)](https://github.com/asomers/mio-aio/actions/workflows/ci.yml)
 [mio]: https://github.com/asomers/mio-aio
 
 ```toml
