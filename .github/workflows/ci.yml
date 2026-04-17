@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  test:
+    name: FreeBSD ${{ matrix.freebsd_version }} ${{ matrix.rust_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - freebsd_version: "14.4"
+            rust_version: "1.71.0"
+          - freebsd_version: "14.4"
+            rust_version: "nightly"
+          - freebsd_version: "15.0"
+            rust_version: "nightly"
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start VM
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: ${{ matrix.freebsd_version }}
+          usesh: true
+      - name: Install dependencies
+        shell: freebsd {0}
+        run: |
+          pkg install -y curl
+          fetch https://sh.rustup.rs -o rustup.sh
+          sh rustup.sh -y --profile=minimal --default-toolchain ${{ matrix.rust_version }}
+      - name: Build
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          cargo +${{ matrix.rust_version }} build
+      - name: Test
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          cargo +${{ matrix.rust_version }} test
+      - name: Doc
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          cargo +${{ matrix.rust_version }} doc --no-deps
+      - name: Clippy
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          rustup component add clippy
+          cargo +${{ matrix.rust_version }} clippy --all-targets -- -D warnings
+      - name: Fmt
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          rustup component add rustfmt
+          cargo +${{ matrix.rust_version }} fmt -- --check --color=never
+      - name: Audit
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          pkg install -y cargo-audit
+          . $HOME/.cargo/env
+          cargo audit
+      - name: Minver
+        if: matrix.rust_version == 'nightly'
+        shell: freebsd {0}
+        run: |
+          . $HOME/.cargo/env
+          cargo +${{ matrix.rust_version }} update -Zdirect-minimal-versions
+          cargo +${{ matrix.rust_version }} check --all-targets
