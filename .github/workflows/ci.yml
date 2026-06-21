@@ -21,7 +21,7 @@ jobs:
             rust_version: "1.71.0"
           - freebsd_version: "14.4"
             rust_version: "nightly"
-          - freebsd_version: "15.0"
+          - freebsd_version: "15.1"
             rust_version: "nightly"
     steps:
       - uses: actions/checkout@v6
