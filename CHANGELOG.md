@@ -1,3 +1,10 @@
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Remove the dependency on the no-longer-maintained `pin_utils` crate.
+  (#[56](https://github.com/asomers/mio-aio/pull/56))
+
 ## [2.0.0] - 2026-03-27
 
 ### Changed
