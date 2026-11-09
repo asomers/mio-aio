@@ -2,6 +2,7 @@ use std::{
     io::{IoSlice, IoSliceMut, Read, Seek, Write},
     ops::Deref,
     os::unix::io::AsFd,
+    pin::pin,
 };
 
 use mio::{Events, Interest, Poll, Token};
@@ -26,7 +27,7 @@ pub fn test_aio_cancel() {
     poll.registry()
         .register(&mut aiocb, UDATA, Interest::AIO)
         .expect("registration failed");
-    let mut aiocb = Box::pin(aiocb);
+    let mut aiocb = pin!(aiocb);
 
     aiocb.as_mut().submit().unwrap();
     aiocb.as_mut().cancel().expect("aio_cancel failed");
@@ -59,7 +60,7 @@ mod aio_fsync {
             .register(&mut aiof, UDATA, Interest::AIO)
             .expect("registration failed");
 
-        let mut aiof = Box::pin(aiof);
+        let mut aiof = pin!(aiof);
         aiof.as_mut().submit().unwrap();
         poll.poll(&mut events, None).expect("poll failed");
         let mut it = events.iter();
@@ -96,7 +97,7 @@ mod aio_read {
             poll.registry()
                 .register(&mut aior, UDATA, Interest::AIO)
                 .expect("registration failed");
-            let mut aior = Box::pin(aior);
+            let mut aior = pin!(aior);
 
             aior.as_mut().submit().unwrap();
 
@@ -141,7 +142,7 @@ mod aio_readv {
             poll.registry()
                 .register(&mut aior, UDATA, Interest::AIO)
                 .expect("registration failed");
-            let mut aior = Box::pin(aior);
+            let mut aior = pin!(aior);
 
             aior.as_mut().submit().unwrap();
 
@@ -177,7 +178,7 @@ mod aio_write {
         poll.registry()
             .register(&mut aiow, UDATA, Interest::AIO)
             .expect("registration failed");
-        let mut aiow = Box::pin(aiow);
+        let mut aiow = pin!(aiow);
 
         aiow.as_mut().submit().unwrap();
         aiow.as_mut().cancel().unwrap();
@@ -206,7 +207,7 @@ mod aio_write {
             poll.registry()
                 .register(&mut aiow, UDATA, Interest::AIO)
                 .expect("registration failed");
-            let mut aiow = Box::pin(aiow);
+            let mut aiow = pin!(aiow);
 
             aiow.as_mut().submit().unwrap();
 
@@ -246,7 +247,7 @@ mod aio_writev {
             poll.registry()
                 .register(&mut aiow, UDATA, Interest::AIO)
                 .expect("registration failed");
-            let mut aiow = Box::pin(aiow);
+            let mut aiow = pin!(aiow);
 
             aiow.as_mut().submit().unwrap();
 
