@@ -29,7 +29,7 @@ tokio = []
 [dependencies]
 mio = "1.2"
 nix = {version = ">=0.30.0,<0.32.0", default-features = false, features = ["aio", "event"] }
-pin-utils = "0.1.0"
+pin-project-lite = "0.2.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
@@ -37,7 +37,3 @@ mio = { version = "1.2", features = ["os-poll"] }
 nix = {version = ">=0.30.0,<0.32.0", default-features = false, features = ["aio", "event", "feature"] }
 sysctl = "0.6"
 tempfile = "3.4"
-
-[[test]]
-name = "functional"
-path = "tests/test.rs"

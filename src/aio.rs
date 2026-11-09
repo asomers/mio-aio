@@ -15,6 +15,7 @@ use nix::{
         signal::SigevNotify,
     },
 };
+use pin_project_lite::pin_project;
 
 /// Return type of [`Source::read_at`]
 pub type ReadAt<'a> = Source<aio::AioRead<'a>>;
@@ -66,18 +67,20 @@ pub trait SourceApi {
     fn submit(self: Pin<&mut Self>) -> nix::Result<()>;
 }
 
-/// A Mio source based on a single POSIX AIO operation.
-///
-/// The generic parameter specifies exactly which operation it is.  This struct
-/// implements `mio::Source`.  After creation, use `mio::Source::register` to
-/// connect it to the event loop.
+pin_project! {
+    /// A Mio source based on a single POSIX AIO operation.
+    ///
+    /// The generic parameter specifies exactly which operation it is.  This
+    /// struct implements `mio::Source`.  After creation, use
+    /// `mio::Source::register` to connect it to the event loop.
 #[derive(Debug)]
-pub struct Source<T> {
-    inner: T,
+    pub struct Source<T> {
+        #[pin]
+        inner: T,
+    }
 }
-impl<T: Aio> Source<T> {
-    pin_utils::unsafe_pinned!(inner: T);
 
+impl<T: Aio> Source<T> {
     fn _deregister_raw(&mut self) {
         let sigev = SigevNotify::SigevNone;
         self.inner.set_sigev_notify(sigev);
@@ -97,11 +100,11 @@ impl<T: Aio> SourceApi for Source<T> {
     type Output = T::Output;
 
     fn aio_return(self: Pin<&mut Self>) -> nix::Result<Self::Output> {
-        self.inner().aio_return()
+        self.project().inner.aio_return()
     }
 
     fn cancel(self: Pin<&mut Self>) -> nix::Result<aio::AioCancelStat> {
-        self.inner().cancel()
+        self.project().inner.cancel()
     }
 
     #[cfg(feature = "tokio")]
@@ -110,7 +113,7 @@ impl<T: Aio> SourceApi for Source<T> {
     }
 
     fn error(self: Pin<&mut Self>) -> nix::Result<()> {
-        self.inner().error()
+        self.project().inner.error()
     }
 
     fn in_progress(&self) -> bool {
@@ -123,7 +126,7 @@ impl<T: Aio> SourceApi for Source<T> {
     }
 
     fn submit(self: Pin<&mut Self>) -> nix::Result<()> {
-        self.inner().submit()
+        self.project().inner.submit()
     }
 }
 
