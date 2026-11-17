@@ -28,12 +28,12 @@ tokio = []
 
 [dependencies]
 mio = "1.2"
-nix = {version = ">=0.30.0,<0.32.0", default-features = false, features = ["aio", "event"] }
+nix = {version = ">=0.30.0,<0.33.0", default-features = false, features = ["aio", "event"] }
 pin-project-lite = "0.2.0"
 
 [dev-dependencies]
 assert-impl = "0.1"
 mio = { version = "1.2", features = ["os-poll"] }
-nix = {version = ">=0.30.0,<0.32.0", default-features = false, features = ["aio", "event", "feature"] }
+nix = {version = ">=0.30.0,<0.33.0", default-features = false, features = ["aio", "event", "feature"] }
 sysctl = "0.6"
 tempfile = "3.4"
