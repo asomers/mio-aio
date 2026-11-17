@@ -1,3 +1,10 @@
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Widened the range of accepted versions of the nix crate.
+  ([#57](https://github.com/asomers/mio-aio/pull/57))
+
 ## [2.0.1] - 2026-11-09
 
 ### Fixed
